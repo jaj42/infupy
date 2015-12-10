@@ -3,6 +3,7 @@ import fresenius
 import readline
 import time
 import sys
+from decimal import Decimal
 
 prompt = '> '
 
@@ -14,7 +15,7 @@ logfile = open('seringues.log', 'w')
 def printrx():
     while not logfile.closed:
         origin, msg = fresbase.recvq.get()
-        logfile.write("{};{}\n".format(time.time(), msg))
+        logfile.write("{};{}\n".format(Decimal(time.time()), msg))
         print msg + "\n" + prompt,
 
 def queryloop():
