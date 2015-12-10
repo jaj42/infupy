@@ -5,23 +5,25 @@ import time
 import sys
 from decimal import Decimal
 
+logfile = open('seringues.log', 'w')
+DOLOG = [False]
 prompt = '> '
 
 port = sys.argv[1]
 fresbase = fresenius.FreseniusComm(port = port)
 
-logfile = open('seringues.log', 'w')
-
 def printrx():
-    while not logfile.closed:
+    while True:
         origin, msg = fresbase.recvq.get()
-        logfile.write("{};{}\n".format(Decimal(time.time()), msg))
         print msg + "\n" + prompt,
+        if DOLOG[-1]:
+            logfile.write("{};{}\n".format(Decimal(time.time()), msg))
 
 def queryloop():
     Ts = 0.5  # 2 Hz sample rate
     tbase = time.time()
-    while not logfile.closed:
+    print DOLOG
+    while DOLOG[-1]:
         tnew = time.time()
         if tnew - tbase > Ts:
             # d = flow rate, g = infused volume
@@ -35,17 +37,27 @@ printthread.start()
 querythread = threading.Thread(target = queryloop)
 querythread.daemon = True
 
-if False:
-    # Start querying for the flow
+def startlogging():
     fresbase.sendCommand('0DC')
     fresbase.sendCommand('1DC')
     fresbase.sendCommand('1DE;dg')
+    DOLOG.append(True)
     querythread.start()
+
+def stoplogging():
+    DOLOG.append(False)
+    fresbase.sendCommand('1AE')
 
 while True:
     cmd = raw_input(prompt)
-    if cmd == 'quit': break
-    fresbase.sendCommand(cmd)
+    if cmd == 'quit':
+        break
+    elif cmd == 'log':
+        startlogging()
+    elif cmd == 'stoplog':
+        stoplogging()
+    else:
+        fresbase.sendCommand(cmd)
 
 logfile.close()
 fresbase.stop()

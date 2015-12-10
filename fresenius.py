@@ -101,49 +101,58 @@ class FreseniusComm(serial.Serial):
                                             baudrate = baudrate,
                                             bytesize = serial.SEVENBITS,
                                             parity   = serial.PARITY_EVEN,
-                                            stopbits = serial.STOPBITS_ONE,
-                                            timeout  = 2)
-        self.recvq = Queue.Queue()
-        self.sendq = Queue.PriorityQueue()
+                                            stopbits = serial.STOPBITS_ONE)
+        self.recvq  = Queue.Queue()
+        self.cmdq   = Queue.Queue()
+        self.replyq = Queue.Queue()
 
         # Semaphore ensures that we wait for answers before sending new commands
         self.__sem = threading.BoundedSemaphore(value = 1)
 
-        self.rxthread = RxThread(self, self.recvq, self.sendq, self.__sem)
+        self.rxthread = RecvThread(self, recvq  = self.recvq,
+                                         replyq = self.replyq,
+                                         cmdq   = self.cmdq,
+                                         sem    = self.__sem)
         self.rxthread.daemon = True
 
-        self.txthread = TxThread(self, self.recvq, self.sendq, self.__sem)
+        self.txthread = SendThread(self, cmdq = self.cmdq,
+                                         sem  = self.__sem)
         self.txthread.daemon = True
+
+        self.replythread = ReplyThread(self, self.replyq)
+        self.replythread.daemon = True
 
         self.start()
 
     def start(self):
         self.rxthread.start()
+        self.replythread.start()
         self.txthread.start()
 
     def stop(self):
-        # XXX disconnect the proper syringes
         self.txthread.terminate()
         self.rxthread.terminate()
+        self.replythread.terminate()
 
     def sendCommand(self, msg):
-        self.sendq.put((10, genFrame(msg)))
+        self.cmdq.put(genFrame(msg))
 
-class RxThread(threading.Thread):
-    def __init__(self, comm, recvq, sendq, sem):
-        super(RxThread, self).__init__()
-        self.__comm = comm
-        self.__recvq = recvq
-        self.__sendq = sendq
-        self.__sem = sem
+class RecvThread(threading.Thread):
+    def __init__(self, comm, recvq, replyq, cmdq, sem):
+        super(RecvThread, self).__init__()
+        self.__comm   = comm
+        self.__recvq  = recvq
+        self.__cmdq   = cmdq
+        self.__replyq = replyq
+        self.__sem    = sem
         self.__terminate = False
         self.__buffer = ""
 
     def enqueueCtrlReply(self, msg):
-        self.__sendq.put((0, msg))
+        self.__replyq.put(msg)
 
     def enqueueSpontReply(self, msg):
-        self.__sendq.put((2, genFrame(msg)))
+        self.__replyq.put(genFrame(msg))
 
     def extractMessage(self, rxstr):
         # The checksum is in the last two bytes
@@ -162,11 +171,10 @@ class RxThread(threading.Thread):
         self.__terminate = True
 
     def allowNewCmd(self):
-        self.__sem.release()
-#        try:
-#            self.__sem.release()
-#        except ValueError:
-#            pass
+        try:
+            self.__sem.release()
+        except ValueError:
+            pass
 
     def enqueueRxBuffer(self):
         origin, msg, check = self.extractMessage(self.__buffer)
@@ -187,7 +195,7 @@ class RxThread(threading.Thread):
             return
 
         elif origin[-1] in ['E', 'M']:
-            # We need to reply to spontaneously generated variables
+            # Spontaneously generated information. We need to acknowledge.
             self.enqueueSpontReply(origin)
             if msg is not None: self.__recvq.put((origin, msg))
 
@@ -204,10 +212,7 @@ class RxThread(threading.Thread):
         insideCommand = False
         while not self.__terminate:
             c = self.__comm.read(1)
-            if len(c) < 1:
-                # We timed out
-                pass
-            elif insideNACKerr:
+            if insideNACKerr:
                 if c in ERRdata:
                     errmsg = ERRdata[c]
                 else:
@@ -232,26 +237,42 @@ class RxThread(threading.Thread):
                 self.__buffer += c
 
 
-class TxThread(threading.Thread):
-    def __init__(self, comm, recvq, sendq, sem):
-        super(TxThread, self).__init__()
+class SendThread(threading.Thread):
+    def __init__(self, comm, cmdq, sem):
+        super(SendThread, self).__init__()
         self.__comm = comm
+        self.__cmdq = cmdq
+        self.__sem  = sem
         self.__terminate = False
-        self.__recvq = recvq
-        self.__sendq = sendq
-        self.__sem = sem
 
     def terminate(self):
         self.__terminate = True
 
     def run(self):
         while not self.__terminate:
-            # Then process one message from the command queue
             try:
-                # The timeout ensures we can exit the thread
-                prio, msg = self.__sendq.get(timeout = 2)
+                msg = self.__cmdq.get(timeout = 2)
             except Queue.Empty:
                 continue
 
-            if prio > 5: self.__sem.acquire()
+            self.__sem.acquire()
+            self.__comm.write(msg)
+
+class ReplyThread(threading.Thread):
+    def __init__(self, comm, replyq):
+        super(ReplyThread, self).__init__()
+        self.__comm   = comm
+        self.__replyq = replyq
+        self.__terminate = False
+
+    def terminate(self):
+        self.__terminate = True
+
+    def run(self):
+        while not self.__terminate:
+            try:
+                msg = self.__replyq.get(timeout = 2)
+            except Queue.Empty:
+                continue
+
             self.__comm.write(msg)
