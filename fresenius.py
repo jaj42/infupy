@@ -3,22 +3,16 @@ import Queue
 import threading
 
 # Frame markers
-#STX = '\x02'
-#ETX = '\x03'
-STX = 'x'
-ETX = 'y'
+STX = '\x02'
+ETX = '\x03'
 
 # Delivery control
-#ACK  = '\x06'
-#NACK = '\x15'
-ACK  = 'a'
-NACK = 'b'
+ACK  = '\x06'
+NACK = '\x15'
 
 # Keep-alive
-#ENQ = '\x05'
-#DC4 = '\x14'
-ENQ = 'w'
-DC4 = 'v'
+ENQ = '\x05'
+DC4 = '\x14'
 
 # Allowed command characters
 CHROK = map(chr, range(0x20 , 0x7E))
