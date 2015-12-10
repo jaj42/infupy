@@ -3,16 +3,25 @@ import Queue
 import threading
 
 # Frame markers
-STX = '\x02'
-ETX = '\x03'
+#STX = '\x02'
+#ETX = '\x03'
+STX = 'x'
+ETX = 'y'
 
 # Delivery control
-ACK  = '\x06'
-NACK = '\x15'
+#ACK  = '\x06'
+#NACK = '\x15'
+ACK  = 'a'
+NACK = 'b'
 
 # Keep-alive
-ENQ = '\x05'
-DC4 = '\x14'
+#ENQ = '\x05'
+#DC4 = '\x14'
+ENQ = 'w'
+DC4 = 'v'
+
+# Allowed command characters
+CHROK = map(chr, range(0x20 , 0x7E))
 
 # Errors
 ERRdata = {
@@ -92,47 +101,133 @@ class FreseniusComm(serial.Serial):
                                             parity   = serial.PARITY_EVEN,
                                             stopbits = serial.STOPBITS_ONE,
                                             timeout  = 2)
+        # 3 Priorities defined: 0  -> keepalive,
+        #                       5  -> reply to Base spontaneous message,
+        #                       10 -> command to send
+        self.txq = Queue.PriorityQueue()
+        self.rxq = Queue.Queue()
+
+        # Semaphore ensures that we wait for answers before sending new commands
+        self.__sem = threading.Semaphore(value = 1)
+
+        self.rxthread = RxThread(self, self.rxq, self.txq, self.__sem)
+        self.rxthread.daemon = True
+
+        self.txthread = TxThread(self, self.rxq, self.txq, self.__sem)
+        self.txthread.daemon = True
+
+        self.start()
+
+    def start(self):
+        self.rxthread.start()
+        self.txthread.start()
+
+    def stop(self):
+        # XXX disconnect the proper syringes
+        self.txthread.terminate()
+        self.rxthread.terminate()
+
+    def sendCommand(self, cmd):
+        self.txq.put((10, cmd))
 
 class RxThread(threading.Thread):
-    def __init__(self, comm):
+    def __init__(self, comm, rxq, txq, sem):
         super(RxThread, self).__init__()
         self.__comm = comm
-        self.queue = Queue.Queue()
+        self.__rxq = rxq
+        self.__txq = txq
+        self.__sem = sem
         self.__terminate = False
         self.__buffer = ""
+
+    def extractMessage(self, rxstr):
+        # The checksum is in the last two bytes
+        chk   = rxstr[-2:]
+        rxstr = rxstr[:-2]
+        # Partition the string
+        splt   = rxstr.split(';')
+        origin = splt[0]
+        if len(splt) > 1:
+            msg = splt[1]
+        else:
+            msg = None
+        return (origin, msg, chk == genCheckSum(rxstr))
 
     def terminate(self):
         self.__terminate = True
 
-    def enqueueBuffer(self):
-        self.queue.put(self.__buffer)
-        # XXX do actual error checking before sending ACK
-        self.__comm.write(ACK)
-        self.__buffer = ""
+    def enqueueTxBuffer(self, msg):
+        self.__txq.put(msg)
+        self.__sem.release()
 
-    def sendKeepAlive(self):
-        self.__comm.write(DC4)
+    def enqueueRxBuffer(self):
+        # XXX do actual error checking before sending ACK
+        # XXX also handle error messages
+        origin, msg, check = self.extractMessage(self.__buffer)
+        self.__buffer = ""
+        if not check:
+            print 'Wrong checksum: Origin: {}, Message: {}'.format(origin, msg)
+            self.enqueueTxBuffer((0, NACK + '\x32'))
+            self.__sem.release()
+            return
+        else:
+            self.enqueueTxBuffer((0, ACK))
+
+        if len(origin) == 0:
+            pass
+        elif origin[-1] == 'I':
+            # Error condition
+            if msg in ERRcmd:
+                errmsg = ERRcmd[msg]
+            else:
+                errmsg = "Unknown Error"
+            print "Commmand error: {}".format(errmsg)
+        elif origin[-1] in ['E', 'M']:
+            # We need to reply to spontaneously generated variables
+            self.enqueueTxBuffer((5, origin))
+
+        if msg is not None:
+            self.__rxq.put((origin, msg))
+
+        # We received the reply to the last command, allow to send one more
+        self.__sem.release()
 
     def run(self):
+        getNACKerr = False
         while not self.__terminate:
             # We need to read byte by byte because ENQ/DC4 line monitoring
             # can happen any time and we need to reply quickly
             c = self.__comm.read(1)
-            if c == ENQ:
-                self.sendKeepAlive()
-                continue
-            if c == ETX:
-                self.enqueueBuffer()
-                continue
-            self.__buffer += c
+            if getNACKerr:
+                if c in ERRdata:
+                    errmsg = ERRdata[c]
+                else:
+                    errmsg = "Unknown Error"
+                print "Protocol error: {}".format(errmsg)
+                self.__sem.release()
+                getNACKerr = False
+            elif c == ENQ:
+                self.enqueueTxBuffer((0, DC4))
+            elif c == STX:
+                pass
+            elif c == ETX:
+                self.enqueueRxBuffer()
+            elif c == NACK:
+                getNACKerr = True
+            elif c in CHROK:
+                self.__buffer += c
+            else:
+                pass
 
 
 class TxThread(threading.Thread):
-    def __init__(self, comm):
+    def __init__(self, comm, rxq, txq, sem):
         super(TxThread, self).__init__()
         self.__comm = comm
         self.__terminate = False
-        self.queue = Queue.Queue()
+        self.__rxq = rxq
+        self.__txq = txq
+        self.__sem = sem
 
     def terminate(self):
         self.__terminate = True
@@ -140,18 +235,14 @@ class TxThread(threading.Thread):
     def run(self):
         while not self.__terminate:
             try:
-                msg = self.queue.get(timeout = 2)
+                # The timeout ensures we can exit the thread
+                prio, msg = self.__txq.get(timeout = 2)
             except Queue.Empty:
                 continue
-            self.__comm.write(genFrame(msg))
-
-
-#message valid chars: 0x20 - 0x7E
-#[STX]PR;1F4047[ETX]
-# message: "PR;1F40"
-# checksum: 47
-
-# take ASCII hex value of each caracter
-# sum of values
-# 8 bits of the sum
-# FF - this value
+            # Priority 0 (important) messages are flow control and are sent raw (unframed)
+            # Also they are sent first, which is why we have the priority queue
+            self.__sem.acquire()
+            if prio <= 0:
+                self.__comm.write(msg)
+            else:
+                self.__comm.write(genFrame(msg))
