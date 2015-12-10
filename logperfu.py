@@ -2,10 +2,12 @@ import threading
 import fresenius
 import readline
 import time
+import sys
 
 prompt = '> '
 
-fresbase = fresenius.FreseniusComm(port = "/dev/ttyp1")
+port = sys.argv[1]
+fresbase = fresenius.FreseniusComm(port = port)
 
 logfile = open('seringues.log', 'w')
 

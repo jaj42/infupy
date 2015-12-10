@@ -2,15 +2,23 @@ import serial
 import Queue
 import threading
 
+DEBUG = True
+
 # Frame markers
+#STX = 'x'
+#ETX = 'y'
 STX = '\x02'
 ETX = '\x03'
 
 # Delivery control
+#ACK  = 'q'
+#NACK = 'r'
 ACK  = '\x06'
 NACK = '\x15'
 
 # Keep-alive
+#ENQ = 'w'
+#DC4 = 'v'
 ENQ = '\x05'
 DC4 = '\x14'
 
@@ -160,7 +168,7 @@ class RxThread(threading.Thread):
         origin, msg, check = self.extractMessage(self.__buffer)
         self.__buffer = ""
         if not check:
-            print 'Wrong checksum: Origin: {}, Message: {}'.format(origin, msg)
+            if DEBUG: print 'Sending NACK Wrong checksum: Origin: {}, Message: {}'.format(origin, msg)
             self.enqueueTxBuffer((0, NACK + '\x32'))
             self.__sem.release()
             return
@@ -187,31 +195,38 @@ class RxThread(threading.Thread):
         self.__sem.release()
 
     def run(self):
-        getNACKerr = False
+        insideNACKerr = False
+        insideCommand = False
         while not self.__terminate:
             # We need to read byte by byte because ENQ/DC4 line monitoring
             # can happen any time and we need to reply quickly
             c = self.__comm.read(1)
-            if getNACKerr:
+            if insideNACKerr:
                 if c in ERRdata:
                     errmsg = ERRdata[c]
                 else:
                     errmsg = "Unknown Error"
                 print "Protocol error: {}".format(errmsg)
                 self.__sem.release()
-                getNACKerr = False
+                insideNACKerr = False
             elif c == ENQ:
                 self.enqueueTxBuffer((0, DC4))
-            elif c == STX:
+            elif c == ACK:
                 pass
+            elif c == STX:
+                # Start of command marker
+                insideCommand = True
             elif c == ETX:
+                # End of command marker
                 self.enqueueRxBuffer()
+                insideCommand = False
             elif c == NACK:
-                getNACKerr = True
-            elif c in CHROK:
+                insideNACKerr = True
+            elif insideCommand and c in CHROK:
                 self.__buffer += c
             else:
-                pass
+                if DEBUG: print "Sending NACK Control code in Command"
+                self.enqueueTxBuffer((0, NACK + '\x38'))
 
 
 class TxThread(threading.Thread):
@@ -236,6 +251,8 @@ class TxThread(threading.Thread):
             # Priority 0 (important) messages are flow control and are sent raw (unframed)
             # Also they are sent first, which is why we have the priority queue
             self.__sem.acquire()
+            if DEBUG:
+                print "Semaphore: {}, TxQ: {}, RxQ: {}".format(self.__sem._Semaphore__value, self.__txq.qsize(), self.__rxq.qsize())
             if prio <= 0:
                 self.__comm.write(msg)
             else:
