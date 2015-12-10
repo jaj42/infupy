@@ -13,8 +13,8 @@ logfile = open('seringues.log', 'w')
 
 def printrx():
     while not logfile.closed:
-        origin, msg = fresbase.rxq.get()
-        logfile.writelines([msg])
+        origin, msg = fresbase.recvq.get()
+        logfile.write("{};{}\n".format(time.time(), msg))
         print msg + "\n" + prompt,
 
 def queryloop():

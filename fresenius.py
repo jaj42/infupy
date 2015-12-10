@@ -17,8 +17,8 @@ ACK  = '\x06'
 NACK = '\x15'
 
 # Keep-alive
-#ENQ = 'w'
-#DC4 = 'v'
+#ENQ = 'v'
+#DC4 = 'w'
 ENQ = '\x05'
 DC4 = '\x14'
 
@@ -103,19 +103,16 @@ class FreseniusComm(serial.Serial):
                                             parity   = serial.PARITY_EVEN,
                                             stopbits = serial.STOPBITS_ONE,
                                             timeout  = 2)
-        # 3 Priorities defined: 0  -> keepalive,
-        #                       5  -> reply to Base spontaneous message,
-        #                       10 -> command to send
-        self.txq = Queue.PriorityQueue()
-        self.rxq = Queue.Queue()
+        self.recvq = Queue.Queue()
+        self.sendq = Queue.PriorityQueue()
 
         # Semaphore ensures that we wait for answers before sending new commands
-        self.__sem = threading.Semaphore(value = 1)
+        self.__sem = threading.BoundedSemaphore(value = 1)
 
-        self.rxthread = RxThread(self, self.rxq, self.txq, self.__sem)
+        self.rxthread = RxThread(self, self.recvq, self.sendq, self.__sem)
         self.rxthread.daemon = True
 
-        self.txthread = TxThread(self, self.rxq, self.txq, self.__sem)
+        self.txthread = TxThread(self, self.recvq, self.sendq, self.__sem)
         self.txthread.daemon = True
 
         self.start()
@@ -129,25 +126,31 @@ class FreseniusComm(serial.Serial):
         self.txthread.terminate()
         self.rxthread.terminate()
 
-    def sendCommand(self, cmd):
-        self.txq.put((10, cmd))
+    def sendCommand(self, msg):
+        self.sendq.put((10, genFrame(msg)))
 
 class RxThread(threading.Thread):
-    def __init__(self, comm, rxq, txq, sem):
+    def __init__(self, comm, recvq, sendq, sem):
         super(RxThread, self).__init__()
         self.__comm = comm
-        self.__rxq = rxq
-        self.__txq = txq
+        self.__recvq = recvq
+        self.__sendq = sendq
         self.__sem = sem
         self.__terminate = False
         self.__buffer = ""
+
+    def enqueueCtrlReply(self, msg):
+        self.__sendq.put((0, msg))
+
+    def enqueueSpontReply(self, msg):
+        self.__sendq.put((2, genFrame(msg)))
 
     def extractMessage(self, rxstr):
         # The checksum is in the last two bytes
         chk   = rxstr[-2:]
         rxstr = rxstr[:-2]
         # Partition the string
-        splt   = rxstr.split(';')
+        splt   = rxstr.split(';', 1)
         origin = splt[0]
         if len(splt) > 1:
             msg = splt[1]
@@ -158,41 +161,39 @@ class RxThread(threading.Thread):
     def terminate(self):
         self.__terminate = True
 
-    def enqueueTxBuffer(self, msg):
-        self.__txq.put(msg)
-        self.__sem.release()
+    def allowNewCmd(self):
+        try:
+            self.__sem.release()
+        except ValueError:
+            pass
 
     def enqueueRxBuffer(self):
-        # XXX do actual error checking before sending ACK
-        # XXX also handle error messages
         origin, msg, check = self.extractMessage(self.__buffer)
         self.__buffer = ""
-        if not check:
-            if DEBUG: print 'Sending NACK Wrong checksum: Origin: {}, Message: {}'.format(origin, msg)
-            self.enqueueTxBuffer((0, NACK + '\x32'))
-            self.__sem.release()
-            return
-        else:
-            self.enqueueTxBuffer((0, ACK))
+        self.enqueueCtrlReply(ACK)
 
         if len(origin) == 0:
             pass
+
         elif origin[-1] == 'I':
             # Error condition
             if msg in ERRcmd:
                 errmsg = ERRcmd[msg]
             else:
                 errmsg = "Unknown Error"
+            self.allowNewCmd()
             print "Commmand error: {}".format(errmsg)
+            return
+
         elif origin[-1] in ['E', 'M']:
             # We need to reply to spontaneously generated variables
-            self.enqueueTxBuffer((5, origin))
+            self.enqueueSpontReply(origin)
 
         if msg is not None:
-            self.__rxq.put((origin, msg))
+            self.__recvq.put((origin, msg))
 
         # We received the reply to the last command, allow to send one more
-        self.__sem.release()
+        self.allowNewCmd()
 
     def run(self):
         # We need to read byte by byte because ENQ/DC4 line monitoring
@@ -201,16 +202,19 @@ class RxThread(threading.Thread):
         insideCommand = False
         while not self.__terminate:
             c = self.__comm.read(1)
-            if insideNACKerr:
+            if len(c) < 1:
+                # We timed out
+                pass
+            elif insideNACKerr:
                 if c in ERRdata:
                     errmsg = ERRdata[c]
                 else:
                     errmsg = "Unknown Error"
                 print "Protocol error: {}".format(errmsg)
-                self.__sem.release()
+                self.allowNewCmd()
                 insideNACKerr = False
             elif c == ENQ:
-                self.enqueueTxBuffer((0, DC4))
+                self.enqueueCtrlReply(DC4)
             elif c == ACK:
                 pass
             elif c == STX:
@@ -223,23 +227,16 @@ class RxThread(threading.Thread):
             elif c == NACK:
                 insideNACKerr = True
             elif insideCommand:
-                if c in CHROK
-                    self.__buffer += c
-                else:
-                    if DEBUG: print "Sending NACK Control code in Command"
-                    self.enqueueTxBuffer((0, NACK + '\x38'))
-            else:
-                if DEBUG: print "Sending NACK unknown char"
-                self.enqueueTxBuffer((0, NACK + '\x31'))
+                self.__buffer += c
 
 
 class TxThread(threading.Thread):
-    def __init__(self, comm, rxq, txq, sem):
+    def __init__(self, comm, recvq, sendq, sem):
         super(TxThread, self).__init__()
         self.__comm = comm
         self.__terminate = False
-        self.__rxq = rxq
-        self.__txq = txq
+        self.__recvq = recvq
+        self.__sendq = sendq
         self.__sem = sem
 
     def terminate(self):
@@ -247,17 +244,12 @@ class TxThread(threading.Thread):
 
     def run(self):
         while not self.__terminate:
+            # Then process one message from the command queue
             try:
                 # The timeout ensures we can exit the thread
-                prio, msg = self.__txq.get(timeout = 2)
+                prio, msg = self.__sendq.get(timeout = 2)
             except Queue.Empty:
                 continue
-            # Priority 0 (important) messages are flow control and are sent raw (unframed)
-            # Also they are sent first, which is why we have the priority queue
-            self.__sem.acquire()
-            if DEBUG:
-                print "Semaphore: {}, TxQ: {}, RxQ: {}".format(self.__sem._Semaphore__value, self.__txq.qsize(), self.__rxq.qsize())
-            if prio <= 0:
-                self.__comm.write(msg)
-            else:
-                self.__comm.write(genFrame(msg))
+
+            if prio > 5: self.__sem.acquire()
+            self.__comm.write(msg)
