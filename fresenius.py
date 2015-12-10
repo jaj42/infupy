@@ -195,11 +195,11 @@ class RxThread(threading.Thread):
         self.__sem.release()
 
     def run(self):
+        # We need to read byte by byte because ENQ/DC4 line monitoring
+        # can happen any time and we need to reply quickly
         insideNACKerr = False
         insideCommand = False
         while not self.__terminate:
-            # We need to read byte by byte because ENQ/DC4 line monitoring
-            # can happen any time and we need to reply quickly
             c = self.__comm.read(1)
             if insideNACKerr:
                 if c in ERRdata:
@@ -218,15 +218,19 @@ class RxThread(threading.Thread):
                 insideCommand = True
             elif c == ETX:
                 # End of command marker
-                self.enqueueRxBuffer()
                 insideCommand = False
+                self.enqueueRxBuffer()
             elif c == NACK:
                 insideNACKerr = True
-            elif insideCommand and c in CHROK:
-                self.__buffer += c
+            elif insideCommand:
+                if c in CHROK
+                    self.__buffer += c
+                else:
+                    if DEBUG: print "Sending NACK Control code in Command"
+                    self.enqueueTxBuffer((0, NACK + '\x38'))
             else:
-                if DEBUG: print "Sending NACK Control code in Command"
-                self.enqueueTxBuffer((0, NACK + '\x38'))
+                if DEBUG: print "Sending NACK unknown char"
+                self.enqueueTxBuffer((0, NACK + '\x31'))
 
 
 class TxThread(threading.Thread):
