@@ -162,10 +162,11 @@ class RxThread(threading.Thread):
         self.__terminate = True
 
     def allowNewCmd(self):
-        try:
-            self.__sem.release()
-        except ValueError:
-            pass
+        self.__sem.release()
+#        try:
+#            self.__sem.release()
+#        except ValueError:
+#            pass
 
     def enqueueRxBuffer(self):
         origin, msg, check = self.extractMessage(self.__buffer)
@@ -188,12 +189,13 @@ class RxThread(threading.Thread):
         elif origin[-1] in ['E', 'M']:
             # We need to reply to spontaneously generated variables
             self.enqueueSpontReply(origin)
+            if msg is not None: self.__recvq.put((origin, msg))
 
-        if msg is not None:
-            self.__recvq.put((origin, msg))
-
-        # We received the reply to the last command, allow to send one more
-        self.allowNewCmd()
+        else:
+            # This is a reply to one of our commands 
+            if msg is not None: self.__recvq.put((origin, msg))
+            # We received the reply to the last command, allow to send one more
+            self.allowNewCmd()
 
     def run(self):
         # We need to read byte by byte because ENQ/DC4 line monitoring
