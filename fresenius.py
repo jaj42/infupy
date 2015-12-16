@@ -182,6 +182,7 @@ class RecvThread(threading.Thread):
         self.enqueueCtrlReply(ACK)
 
         if len(origin) == 0:
+            # This should actually not happen
             pass
 
         elif origin[-1] == 'I':
