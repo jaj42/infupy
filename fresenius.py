@@ -2,23 +2,17 @@ import serial
 import Queue
 import threading
 
-DEBUG = True
+DEBUG = False
 
 # Frame markers
-#STX = 'x'
-#ETX = 'y'
 STX = '\x02'
 ETX = '\x03'
 
 # Delivery control
-#ACK  = 'q'
-#NACK = 'r'
 ACK  = '\x06'
 NACK = '\x15'
 
 # Keep-alive
-#ENQ = 'v'
-#DC4 = 'w'
 ENQ = '\x05'
 DC4 = '\x14'
 
@@ -38,40 +32,40 @@ ERRdata = {
 }
 
 ERRcmd = {
-    '\x01' : "Unknown Command",
-    '\x02' : "Command disabled in the current Mode",
-    '\x03' : "Command disabled in this status",
-    '\x04' : "Syntax Error",
-    '\x05' : "Operating Mode not Authorized",
-    '\x06' : "Operating Mode already active",
-    '\x07' : "New operating mode disabled in this mode",
-    '\x08' : "Parameter out off limit",
-    '\x09' : "New operating mode disabled in this status",
-    '\x0A' : "Identifier not used",
-    '\x0B' : "Identifier incorrect",                          # a-z
-    '\x0C' : "Message too long",                              # <= 80
-    '\x0D' : "Communication session with the base not open",
-    '\x0E' : "Communication with module impossible",
-#    '\x0F' : "RESERVED",
-#    '\x11' : "RESERVED",
-    '\x12' : "Presence of an Alarm",
-#    '\x13' : "RESERVED",
-    '\x14' : "Attempt to launch infusion before flow rate selection",
-    '\x15' : "Insufficient Volume to launch a bolus",
-    '\x16' : "Impossible to launch the empy Syringe mode",
-#    '\x17' : "RESERVED",
-#    '\x18' : "RESERVED",
-#    '\x19' : "RESERVED",
-    '\x1A' : "Recorded event number incorrect",               # 1-64
-#    '\x1B' : "RESERVED",
-#    '\x1C' : "RESERVED",
-#    '\x1D' : "RESERVED",
-    '\x1E' : "The Communication with the Syringe is not open",
-    '\x1F' : "The Communication with the Syringe is already open",
-    '\x20' : "Command not authorized with this Port",
-    '\x22' : "New mode unauthorized",
-    '\x24' : "Connection Mode incorrect",
-    '\x25' : "Drug number incorrect"
+    '01' : "Unknown Command",
+    '02' : "Command disabled in the current Mode",
+    '03' : "Command disabled in this status",
+    '04' : "Syntax Error",
+    '05' : "Operating Mode not Authorized",
+    '06' : "Operating Mode already active",
+    '07' : "New operating mode disabled in this mode",
+    '08' : "Parameter out off limit",
+    '09' : "New operating mode disabled in this status",
+    '0A' : "Identifier not used",
+    '0B' : "Identifier incorrect",                          # a-z
+    '0C' : "Message too long",                              # <= 80
+    '0D' : "Communication session with the base not open",
+    '0E' : "Communication with module impossible",
+#    '0F' : "RESERVED",
+#    '11' : "RESERVED",
+    '12' : "Presence of an Alarm",
+#    '13' : "RESERVED",
+    '14' : "Attempt to launch infusion before flow rate selection",
+    '15' : "Insufficient Volume to launch a bolus",
+    '16' : "Impossible to launch the empy Syringe mode",
+#    '17' : "RESERVED",
+#    '18' : "RESERVED",
+#    '19' : "RESERVED",
+    '1A' : "Recorded event number incorrect",               # 1-64
+#    '1B' : "RESERVED",
+#    '1C' : "RESERVED",
+#    '1D' : "RESERVED",
+    '1E' : "The Communication with the Syringe is not open",
+    '1F' : "The Communication with the Syringe is already open",
+    '20' : "Command not authorized with this Port",
+    '22' : "New mode unauthorized",
+    '24' : "Connection Mode incorrect",
+    '25' : "Drug number incorrect"
 }
 
 def hexToBinArray(hexstr):
@@ -90,9 +84,7 @@ def genCheckSum(msg):
     checkstr = "{:02X}".format(checksum)
     return checkstr
 
-def genFrame(msg, syringe = None):
-    if syringe is not None:
-        msg = str(syringe) + msg
+def genFrame(msg):
     return STX + msg + genCheckSum(msg) + ETX
 
 class FreseniusComm(serial.Serial):
@@ -102,6 +94,9 @@ class FreseniusComm(serial.Serial):
                                             bytesize = serial.SEVENBITS,
                                             parity   = serial.PARITY_EVEN,
                                             stopbits = serial.STOPBITS_ONE)
+        if DEBUG:
+            self.logfile = open('fresenius.log', w)
+
         self.recvq  = Queue.Queue()
         self.cmdq   = Queue.Queue()
         self.txlock = threading.Lock()
@@ -120,6 +115,16 @@ class FreseniusComm(serial.Serial):
         self.txthread.daemon = True
 
         self.start()
+
+    if DEBUG:
+        def read(self, size=1):
+            data = super(FreseniusComm, self).read(size)
+            self.logfile.write(data)
+            return data
+
+        def write(self, data):
+            self.logfile.write(data)
+            return super(FreseniusComm, self).write(data)
 
     def start(self):
         self.rxthread.start()
@@ -146,13 +151,13 @@ class RecvThread(threading.Thread):
         with self.__txlock:
             self.__comm.write(DC4)
 
-    def sendCtrlReply(self, msg):
+    def sendACK(self):
         with self.__txlock:
-            self.__comm.write(msg)
+            self.__comm.write(ACK)
 
-    def sendSpontReply(self, msg):
+    def sendSpontReply(self, origin):
         with self.__txlock:
-            self.__comm.write(genFrame(msg))
+            self.__comm.write(genFrame(origin))
 
     def extractMessage(self, rxstr):
         # The checksum is in the last two bytes
@@ -179,7 +184,7 @@ class RecvThread(threading.Thread):
     def enqueueRxBuffer(self):
         origin, msg, check = self.extractMessage(self.__buffer)
         self.__buffer = ""
-        self.sendCtrlReply(ACK)
+        self.sendACK()
 
         if len(origin) == 0:
             # This should actually not happen
@@ -190,11 +195,11 @@ class RecvThread(threading.Thread):
             if msg in ERRcmd:
                 errmsg = ERRcmd[msg]
             else:
-                errmsg = "Unknown Error code: {}".format(msg)
+                errmsg = "Unknown Error code {}".format(msg)
             self.allowNewCmd()
             print "Commmand error: {}".format(errmsg)
-            return
 
+# XXX really?
         elif origin[-1] in ['E', 'M']:
             # Spontaneously generated information. We need to acknowledge.
             self.sendSpontReply(origin)
@@ -219,7 +224,7 @@ class RecvThread(threading.Thread):
                 if c in ERRdata:
                     errmsg = ERRdata[c]
                 else:
-                    errmsg = "Unknown Protocol Error code: {}".format(c)
+                    errmsg = "Unknown Error code {}".format(c)
                 print "Protocol error: {}".format(errmsg)
                 self.allowNewCmd()
                 insideNACKerr = False
@@ -236,15 +241,17 @@ class RecvThread(threading.Thread):
                 insideNACKerr = True
             elif insideCommand:
                 self.__buffer += c
+            else:
+                if DEBUG: print "Unexpected char received: {}".format(c)
 
 
 class SendThread(threading.Thread):
     def __init__(self, comm, cmdq, txlock, sem):
         super(SendThread, self).__init__()
-        self.__comm = comm
-        self.__cmdq = cmdq
+        self.__comm   = comm
+        self.__cmdq   = cmdq
         self.__txlock = txlock
-        self.__sem  = sem
+        self.__sem    = sem
         self.__terminate = False
 
     def terminate(self):
