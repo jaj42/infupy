@@ -66,8 +66,8 @@ ERRcmd = {
 #    '\x1B' : "RESERVED",
 #    '\x1C' : "RESERVED",
 #    '\x1D' : "RESERVED",
-    '\x1E' : "The Communication with the Pilot is not open",
-    '\x1F' : "The Communication with the Pilot is already open",
+    '\x1E' : "The Communication with the Syringe is not open",
+    '\x1F' : "The Communication with the Syringe is already open",
     '\x20' : "Command not authorized with this Port",
     '\x22' : "New mode unauthorized",
     '\x24' : "Connection Mode incorrect",
@@ -104,63 +104,55 @@ class FreseniusComm(serial.Serial):
                                             stopbits = serial.STOPBITS_ONE)
         self.recvq  = Queue.Queue()
         self.cmdq   = Queue.Queue()
-        self.replyq = Queue.Queue()
-        self.keepaliveq = Queue.Queue()
+        self.txlock = threading.Lock()
 
         # Semaphore ensures that we wait for answers before sending new commands
         self.__sem = threading.BoundedSemaphore(value = 1)
 
-        self.rxthread = RecvThread(self, recvq      = self.recvq,
-                                         replyq     = self.replyq,
-                                         keepaliveq = self.keepaliveq,
-                                         sem        = self.__sem)
+        self.rxthread = RecvThread(self, recvq  = self.recvq,
+                                         txlock = self.txlock,
+                                         sem    = self.__sem)
         self.rxthread.daemon = True
 
-        self.txthread = SendThread(self, cmdq = self.cmdq,
-                                         sem  = self.__sem)
+        self.txthread = SendThread(self, cmdq   = self.cmdq,
+                                         txlock = self.txlock,
+                                         sem    = self.__sem)
         self.txthread.daemon = True
-
-        self.replythread = ReplyThread(self, self.replyq)
-        self.replythread.daemon = True
-
-        self.keepalivethread = KeepaliveThread(self, self.keepaliveq)
-        self.keepalivethread.daemon = True
 
         self.start()
 
     def start(self):
-        self.keepalivethread.start()
-        self.replythread.start()
         self.rxthread.start()
         self.txthread.start()
 
     def stop(self):
         self.txthread.terminate()
         self.rxthread.terminate()
-        self.replythread.terminate()
 
     def sendCommand(self, msg):
         self.cmdq.put(genFrame(msg))
 
 class RecvThread(threading.Thread):
-    def __init__(self, comm, recvq, replyq,  keepaliveq, sem):
+    def __init__(self, comm, recvq, txlock, sem):
         super(RecvThread, self).__init__()
         self.__comm   = comm
         self.__recvq  = recvq
-        self.__replyq = replyq
-        self.__keepaliveq    = keepaliveq
+        self.__txlock = txlock
         self.__sem    = sem
         self.__terminate = False
         self.__buffer = ""
 
     def sendKeepalive(self):
-        self.__keepaliveq.put(DC4)
+        with self.__txlock:
+            self.__comm.write(DC4)
 
-    def enqueueCtrlReply(self, msg):
-        self.__replyq.put(msg)
+    def sendCtrlReply(self, msg):
+        with self.__txlock:
+            self.__comm.write(msg)
 
-    def enqueueSpontReply(self, msg):
-        self.__replyq.put(genFrame(msg))
+    def sendSpontReply(self, msg):
+        with self.__txlock:
+            self.__comm.write(genFrame(msg))
 
     def extractMessage(self, rxstr):
         # The checksum is in the last two bytes
@@ -187,7 +179,7 @@ class RecvThread(threading.Thread):
     def enqueueRxBuffer(self):
         origin, msg, check = self.extractMessage(self.__buffer)
         self.__buffer = ""
-        self.enqueueCtrlReply(ACK)
+        self.sendCtrlReply(ACK)
 
         if len(origin) == 0:
             pass
@@ -204,7 +196,7 @@ class RecvThread(threading.Thread):
 
         elif origin[-1] in ['E', 'M']:
             # Spontaneously generated information. We need to acknowledge.
-            self.enqueueSpontReply(origin)
+            self.sendSpontReply(origin)
             if msg is not None: self.__recvq.put((origin, msg))
 
         else:
@@ -246,10 +238,11 @@ class RecvThread(threading.Thread):
 
 
 class SendThread(threading.Thread):
-    def __init__(self, comm, cmdq, sem):
+    def __init__(self, comm, cmdq, txlock, sem):
         super(SendThread, self).__init__()
         self.__comm = comm
         self.__cmdq = cmdq
+        self.__txlock = txlock
         self.__sem  = sem
         self.__terminate = False
 
@@ -264,35 +257,5 @@ class SendThread(threading.Thread):
                 continue
 
             self.__sem.acquire()
-            self.__comm.write(msg)
-
-class ReplyThread(threading.Thread):
-    def __init__(self, comm, replyq):
-        super(ReplyThread, self).__init__()
-        self.__comm   = comm
-        self.__replyq = replyq
-        self.__terminate = False
-
-    def terminate(self):
-        self.__terminate = True
-
-    def run(self):
-        while not self.__terminate:
-            try:
-                msg = self.__replyq.get(timeout = 2)
-            except Queue.Empty:
-                continue
-
-            self.__comm.write(msg)
-
-class KeepaliveThread(threading.Thread):
-    def __init__(self, comm, keepaliveq):
-        super(KeepaliveThread, self).__init__()
-        self.__comm   = comm
-        self.__keepaliveq = keepaliveq
-        self.__terminate = False
-
-    def run(self):
-        while True:
-            msg = self.__keepaliveq.get()
-            self.__comm.write(DC4)
+            with self.__txlock:
+                self.__comm.write(msg)
