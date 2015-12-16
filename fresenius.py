@@ -105,14 +105,15 @@ class FreseniusComm(serial.Serial):
         self.recvq  = Queue.Queue()
         self.cmdq   = Queue.Queue()
         self.replyq = Queue.Queue()
+        self.keepaliveq = Queue.Queue()
 
         # Semaphore ensures that we wait for answers before sending new commands
         self.__sem = threading.BoundedSemaphore(value = 1)
 
-        self.rxthread = RecvThread(self, recvq  = self.recvq,
-                                         replyq = self.replyq,
-                                         cmdq   = self.cmdq,
-                                         sem    = self.__sem)
+        self.rxthread = RecvThread(self, recvq      = self.recvq,
+                                         replyq     = self.replyq,
+                                         keepaliveq = self.keepaliveq,
+                                         sem        = self.__sem)
         self.rxthread.daemon = True
 
         self.txthread = SendThread(self, cmdq = self.cmdq,
@@ -122,11 +123,15 @@ class FreseniusComm(serial.Serial):
         self.replythread = ReplyThread(self, self.replyq)
         self.replythread.daemon = True
 
+        self.keepalivethread = KeepaliveThread(self, self.keepaliveq)
+        self.keepalivethread.daemon = True
+
         self.start()
 
     def start(self):
-        self.rxthread.start()
+        self.keepalivethread.start()
         self.replythread.start()
+        self.rxthread.start()
         self.txthread.start()
 
     def stop(self):
@@ -138,15 +143,18 @@ class FreseniusComm(serial.Serial):
         self.cmdq.put(genFrame(msg))
 
 class RecvThread(threading.Thread):
-    def __init__(self, comm, recvq, replyq, cmdq, sem):
+    def __init__(self, comm, recvq, replyq,  keepaliveq, sem):
         super(RecvThread, self).__init__()
         self.__comm   = comm
         self.__recvq  = recvq
-        self.__cmdq   = cmdq
         self.__replyq = replyq
+        self.__keepaliveq    = keepaliveq
         self.__sem    = sem
         self.__terminate = False
         self.__buffer = ""
+
+    def sendKeepalive(self):
+        self.__keepaliveq.put(DC4)
 
     def enqueueCtrlReply(self, msg):
         self.__replyq.put(msg)
@@ -189,7 +197,7 @@ class RecvThread(threading.Thread):
             if msg in ERRcmd:
                 errmsg = ERRcmd[msg]
             else:
-                errmsg = "Unknown Error"
+                errmsg = "Unknown Error code: {}".format(msg)
             self.allowNewCmd()
             print "Commmand error: {}".format(errmsg)
             return
@@ -212,16 +220,16 @@ class RecvThread(threading.Thread):
         insideCommand = False
         while not self.__terminate:
             c = self.__comm.read(1)
-            if insideNACKerr:
+            if c == ENQ:
+                self.sendKeepalive()
+            elif insideNACKerr:
                 if c in ERRdata:
                     errmsg = ERRdata[c]
                 else:
-                    errmsg = "Unknown Error"
+                    errmsg = "Unknown Protocol Error code: {}".format(c)
                 print "Protocol error: {}".format(errmsg)
                 self.allowNewCmd()
                 insideNACKerr = False
-            elif c == ENQ:
-                self.enqueueCtrlReply(DC4)
             elif c == ACK:
                 pass
             elif c == STX:
@@ -276,3 +284,15 @@ class ReplyThread(threading.Thread):
                 continue
 
             self.__comm.write(msg)
+
+class KeepaliveThread(threading.Thread):
+    def __init__(self, comm, keepaliveq):
+        super(KeepaliveThread, self).__init__()
+        self.__comm   = comm
+        self.__keepaliveq = keepaliveq
+        self.__terminate = False
+
+    def run(self):
+        while True:
+            msg = self.__keepaliveq.get()
+            self.__comm.write(DC4)
