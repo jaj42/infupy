@@ -20,7 +20,7 @@ def printrx():
             logfile.write("{};{}\n".format(Decimal(time.time()), msg))
 
 def queryloop():
-    Ts = 0.5  # 2 Hz sample rate
+    Ts = 5  # 2 Hz sample rate
     tbase = time.time()
     print DOLOG
     while DOLOG[-1]:
@@ -38,9 +38,9 @@ querythread = threading.Thread(target = queryloop)
 querythread.daemon = True
 
 def startlogging():
-    fresbase.sendCommand('0DC')
-    fresbase.sendCommand('1DC')
-    fresbase.sendCommand('1DE;dg')
+    #fresbase.sendCommand('0DC')
+    #fresbase.sendCommand('1DC')
+    #fresbase.sendCommand('1DE;dg')
     DOLOG.append(True)
     querythread.start()
 
