@@ -5,6 +5,11 @@ import time
 import sys
 from decimal import Decimal
 
+#fresbase.sendCommand('0DC')
+#fresbase.sendCommand('1DC')
+#fresbase.sendCommand('1DE;dg')
+#fresbase.sendCommand('1AE')
+
 logfile = open('seringues.log', 'w')
 DOLOG = [False]
 prompt = '> '
@@ -15,20 +20,20 @@ fresbase = fresenius.FreseniusComm(port = port)
 def printrx():
     while True:
         origin, msg = fresbase.recvq.get()
-        print msg + "\n" + prompt,
+        print "{}:{}\n{}".format(origin, msg, prompt)
         if DOLOG[-1]:
-            logfile.write("{};{}\n".format(Decimal(time.time()), msg))
+            logfile.write("{}:{}:{}\n".format(Decimal(time.time()), origin, msg))
 
 def queryloop():
-    Ts = 5  # 2 Hz sample rate
+    Ts = .01  # 2 Hz sample rate
     tbase = time.time()
-    print DOLOG
-    while DOLOG[-1]:
+    while True:
         tnew = time.time()
         if tnew - tbase > Ts:
             # d = flow rate, g = infused volume
-            fresbase.sendCommand('1LE;dg')
+            fresbase.sendCommand('1LE;dr')
             tbase = tnew
+            time.sleep(Ts / 4)
 
 printthread = threading.Thread(target = printrx)
 printthread.daemon = True
@@ -36,28 +41,39 @@ printthread.start()
 
 querythread = threading.Thread(target = queryloop)
 querythread.daemon = True
+#querythread.start()
 
 def startlogging():
-    #fresbase.sendCommand('0DC')
-    #fresbase.sendCommand('1DC')
-    #fresbase.sendCommand('1DE;dg')
     DOLOG.append(True)
-    querythread.start()
 
 def stoplogging():
     DOLOG.append(False)
-    fresbase.sendCommand('1AE')
 
 while True:
     cmd = raw_input(prompt)
     if cmd == 'quit':
         break
-    elif cmd == 'log':
+    elif cmd == 'startlog':
         startlogging()
     elif cmd == 'stoplog':
         stoplogging()
+    elif cmd == 'genvar':
+        fresbase.sendCommand('1DE;r')
+        fresbase.sendCommand('2DE;r')
+    elif cmd == 'novar':
+        fresbase.sendCommand('1AE')
+        fresbase.sendCommand('2AE')
+    elif cmd == 'qloop':
+        querythread.start()
+    elif cmd == 'qlen':
+        print fresbase.cmdq.qsize()
+    elif cmd == 'fastloop':
+        for i in range(100): fresbase.sendCommand('1LE;d')
     else:
         fresbase.sendCommand(cmd)
+
+fresbase.sendCommand('1FC')
+fresbase.sendCommand('0FC')
 
 logfile.close()
 fresbase.stop()
