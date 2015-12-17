@@ -25,12 +25,12 @@ def printrx():
             logfile.write("{}:{}:{}\n".format(Decimal(time.time()), origin, msg))
 
 def queryloop():
-    Ts = .01  # 2 Hz sample rate
+    Ts = .15
     tbase = time.time()
     while True:
         tnew = time.time()
         if tnew - tbase > Ts:
-            # d = flow rate, g = infused volume
+            # d = flow rate, r = infused volume
             fresbase.sendCommand('1LE;dr')
             tbase = tnew
             time.sleep(Ts / 4)
