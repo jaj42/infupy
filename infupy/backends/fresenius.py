@@ -2,15 +2,15 @@ import serial
 import Queue
 import threading
 
-DEBUG = False
+DEBUG = True
 
 # Frame markers
 STX = '\x02'
 ETX = '\x03'
 
 # Delivery control
-ACK  = '\x06'
-NACK = '\x15'
+ACK = '\x06'
+NAK = '\x15'
 
 # Keep-alive
 ENQ = '\x05'
@@ -60,8 +60,9 @@ ERRcmd = {
 #    '1B' : "RESERVED",
 #    '1C' : "RESERVED",
 #    '1D' : "RESERVED",
-    '1E' : "The Communication with the Syringe is not open",
-    '1F' : "The Communication with the Syringe is already open",
+    '1E' : "The Communication with the module is not open",
+#    '1F' : "The Communication with the module is already open",
+    '1F' : "One of the modules is not in the manual mode",
     '20' : "Command not authorized with this Port",
     '22' : "New mode unauthorized",
     '24' : "Connection Mode incorrect",
@@ -95,10 +96,10 @@ class FreseniusComm(serial.Serial):
                                             parity   = serial.PARITY_EVEN,
                                             stopbits = serial.STOPBITS_ONE)
         if DEBUG:
-            self.logfile = open('fresenius.log', w)
+            self.logfile = open('fresenius.log', 'wb')
 
         self.recvq  = Queue.Queue()
-        self.cmdq   = Queue.Queue()
+        self.cmdq   = Queue.Queue(maxsize = 20)
         self.txlock = threading.Lock()
 
         # Semaphore ensures that we wait for answers before sending new commands
@@ -135,7 +136,11 @@ class FreseniusComm(serial.Serial):
         self.rxthread.terminate()
 
     def sendCommand(self, msg):
-        self.cmdq.put(genFrame(msg))
+        try:
+            self.cmdq.put(genFrame(msg), block = False)
+            return True
+        except Queue.Full:
+            return False
 
 class RecvThread(threading.Thread):
     def __init__(self, comm, recvq, txlock, sem):
@@ -203,31 +208,31 @@ class RecvThread(threading.Thread):
         elif origin[-1] in ['E', 'M']:
             # Spontaneously generated information. We need to acknowledge.
             self.sendSpontReply(origin)
-            if msg is not None: self.__recvq.put((origin, msg))
+            self.__recvq.put((origin, msg))
 
         else:
             # This is a reply to one of our commands 
-            if msg is not None: self.__recvq.put((origin, msg))
+            self.__recvq.put((origin, msg))
             # We received the reply to the last command, allow to send one more
             self.allowNewCmd()
 
     def run(self):
         # We need to read byte by byte because ENQ/DC4 line monitoring
         # can happen any time and we need to reply quickly
-        insideNACKerr = False
+        insideNAKerr = False
         insideCommand = False
         while not self.__terminate:
             c = self.__comm.read(1)
             if c == ENQ:
                 self.sendKeepalive()
-            elif insideNACKerr:
+            elif insideNAKerr:
                 if c in ERRdata:
                     errmsg = ERRdata[c]
                 else:
                     errmsg = "Unknown Error code {}".format(c)
                 print "Protocol error: {}".format(errmsg)
                 self.allowNewCmd()
-                insideNACKerr = False
+                insideNAKerr = False
             elif c == ACK:
                 pass
             elif c == STX:
@@ -237,8 +242,8 @@ class RecvThread(threading.Thread):
                 # End of command marker
                 insideCommand = False
                 self.enqueueRxBuffer()
-            elif c == NACK:
-                insideNACKerr = True
+            elif c == NAK:
+                insideNAKerr = True
             elif insideCommand:
                 self.__buffer += c
             else:
