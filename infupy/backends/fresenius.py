@@ -2,7 +2,7 @@ import serial
 import Queue
 import threading
 
-DEBUG = True
+DEBUG = False
 
 # Frame markers
 STX = '\x02'
@@ -96,7 +96,7 @@ class FreseniusComm(serial.Serial):
                                             parity   = serial.PARITY_EVEN,
                                             stopbits = serial.STOPBITS_ONE)
         if DEBUG:
-            self.logfile = open('fresenius.log', 'wb')
+            self.logfile = open('fresenius_raw.log', 'wb')
 
         self.recvq  = Queue.Queue()
         self.cmdq   = Queue.Queue(maxsize = 20)
