@@ -1,5 +1,5 @@
+from infupy import fresenius
 import threading
-import fresenius
 import readline
 import time
 import sys

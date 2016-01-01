@@ -1,6 +1,6 @@
 import serial
-import Queue
 import threading
+import Queue
 
 DEBUG = False
 
