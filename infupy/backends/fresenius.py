@@ -240,24 +240,19 @@ class RecvThread(threading.Thread):
         self.__buffer = ""
         self.sendACK()
 
-        if len(origin) == 0:
-            # This should actually not happen
-            # XXX we should probably raise an error
-            pass
-
-        elif origin[-1] == 'I':
+        if origin.endswith('I'):
             # Error condition
             if msg in ERRcmd:
                 errmsg = ERRcmd[msg]
             else:
                 errmsg = "Unknown Error code {}".format(msg)
             self.allowNewCmd()
-            print "Commmand error: {}".format(errmsg)
+            self.__recvq.put((origin, errmsg))
+            if DEBUG: print "Commmand error: {}".format(errmsg)
 
-        # XXX look if this is correct (others ending in E/M ?)
-        elif origin[-1] in ['E', 'M']:
+        elif origin.endswith('E') or origin.endswith('M'):
             # Spontaneously generated information. We need to acknowledge.
-            # Do not allowNewCmd() here
+            # Do not allowNewCmd() here.
             self.sendSpontReply(origin)
             self.__recvq.put((origin, msg))
 
@@ -268,7 +263,7 @@ class RecvThread(threading.Thread):
 
     def run(self):
         # We need to read byte by byte because ENQ/DC4 line monitoring
-        # can happen any time and we need to reply quickly
+        # can happen any time and we need to reply quickly.
         insideNAKerr = False
         insideCommand = False
         while not self.__terminate:
