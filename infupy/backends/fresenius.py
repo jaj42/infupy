@@ -75,9 +75,6 @@ def hexToBinArray(hexstr):
     return map(lambda x: bindict[x], binstr)
 
 def genCheckSum(msg):
-    """
-    Generate the check sum.
-    """
     asciivalues = map(ord, msg)
     asciisum = sum(asciivalues)
     high, low = divmod(asciisum, 0x100)
@@ -86,10 +83,14 @@ def genCheckSum(msg):
     return checkstr
 
 def genFrame(msg):
+    """
+    Generate a frame to send to the device.
+    """
     return STX + msg + genCheckSum(msg) + ETX
 
 class FreseniusComm(serial.Serial):
     def __init__(self, port, baudrate = 19200):
+        # These settings come from Fresenius documentation
         super(FreseniusComm, self).__init__(port     = port,
                                             baudrate = baudrate,
                                             bytesize = serial.SEVENBITS,
@@ -100,22 +101,26 @@ class FreseniusComm(serial.Serial):
 
         self.recvq  = Queue.Queue()
         self.cmdq   = Queue.Queue(maxsize = 20)
-        self.txlock = threading.Lock()
 
+        # Write lock to make sure only one source writes at a time
+        self.__txlock = threading.Lock()
         # Semaphore ensures that we wait for answers before sending new commands
         self.__sem = threading.BoundedSemaphore(value = 1)
 
         self.rxthread = RecvThread(self, recvq  = self.recvq,
-                                         txlock = self.txlock,
+                                         cmdq   = self.cmdq,
+                                         txlock = self.__txlock,
                                          sem    = self.__sem)
-        self.rxthread.daemon = True
 
         self.txthread = SendThread(self, cmdq   = self.cmdq,
-                                         txlock = self.txlock,
+                                         txlock = self.__txlock,
                                          sem    = self.__sem)
-        self.txthread.daemon = True
 
-        self.start()
+        self.rxthread.daemon = True
+        self.rxthread.start()
+
+        self.txthread.daemon = True
+        self.txthread.start()
 
     if DEBUG:
         def read(self, size=1):
@@ -127,26 +132,72 @@ class FreseniusComm(serial.Serial):
             self.logfile.write(data)
             return super(FreseniusComm, self).write(data)
 
-    def start(self):
-        self.rxthread.start()
-        self.txthread.start()
-
-    def stop(self):
+    def __del__(self):
+        self.cmdq.join()
         self.txthread.terminate()
         self.rxthread.terminate()
 
-    def sendCommand(self, msg):
+    def execCommand(self, msg):
+        """
+        High-level access to send commands and read replies.
+        The reply is a tuple of (origin, message), where origin identifies the
+        device.
+        Mixing low-level and high-level commands can lead to race conditions.
+        """
+        self.cmdq.put(genFrame(msg))
+        self.cmdq.join()
+        return self.recvq.get()
+
+    def sendCommand(self, msg, block = False):
+        """
+        Low level sending of commands.
+        A maximum of 20 commands can be queued.
+        This function will return False when the queue is full, and block is
+        False. It will return True otherwise.
+        Mixing low-level and high-level commands can lead to race conditions.
+        """
         try:
-            self.cmdq.put(genFrame(msg), block = False)
+            self.cmdq.put(genFrame(msg), block = block)
             return True
         except Queue.Full:
             return False
 
+     def recvOne(self, block = True):
+        """
+        Low-level reading of device replies.
+        The reply is a tuple of (origin, message), where origin identifies the
+        device.
+        If block is False and the queue is empty, None is returned.
+        Mixing low-level and high-level commands can lead to race conditions.
+        """
+        try:
+            m = self.recvq.get(block = block)
+            return m
+        except Queue.Empty:
+            return None
+
+     def recvAll(self):
+        """
+        Low-level reading of device replies.
+        This function returns a list of all queued replies.
+        The replies are tuples of (origin, message), where origin identifies
+        the device.
+        You should not mix low-level and high-level access.
+        """
+        while not self.recvq.empty():
+            try:
+                m = self.recvq.get(block = False)
+                yield m
+            except Queue.Empty:
+                break
+
+
 class RecvThread(threading.Thread):
-    def __init__(self, comm, recvq, txlock, sem):
+    def __init__(self, comm, recvq, cmdq, txlock, sem):
         super(RecvThread, self).__init__()
         self.__comm   = comm
         self.__recvq  = recvq
+        self.__cmdq   = cmdq
         self.__txlock = txlock
         self.__sem    = sem
         self.__terminate = False
@@ -181,10 +232,8 @@ class RecvThread(threading.Thread):
         self.__terminate = True
 
     def allowNewCmd(self):
-        try:
-            self.__sem.release()
-        except ValueError:
-            pass
+        self.__cmdq.task_done()
+        self.__sem.release()
 
     def enqueueRxBuffer(self):
         origin, msg, check = self.extractMessage(self.__buffer)
@@ -193,6 +242,7 @@ class RecvThread(threading.Thread):
 
         if len(origin) == 0:
             # This should actually not happen
+            # XXX we should probably raise an error
             pass
 
         elif origin[-1] == 'I':
@@ -204,16 +254,16 @@ class RecvThread(threading.Thread):
             self.allowNewCmd()
             print "Commmand error: {}".format(errmsg)
 
-# XXX really?
+        # XXX look if this is correct (others ending in E/M ?)
         elif origin[-1] in ['E', 'M']:
             # Spontaneously generated information. We need to acknowledge.
+            # Do not allowNewCmd() here
             self.sendSpontReply(origin)
             self.__recvq.put((origin, msg))
 
         else:
             # This is a reply to one of our commands 
             self.__recvq.put((origin, msg))
-            # We received the reply to the last command, allow to send one more
             self.allowNewCmd()
 
     def run(self):

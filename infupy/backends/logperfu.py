@@ -1,4 +1,5 @@
-from infupy import fresenius
+import fresenius
+
 import threading
 import readline
 import time
@@ -19,8 +20,9 @@ fresbase = fresenius.FreseniusComm(port = port)
 
 def printrx():
     while True:
-        origin, msg = fresbase.recvq.get()
+        origin, msg = fresbase.recvOne()
         print "{}:{}\n{}".format(origin, msg, prompt)
+        print prompt
         if DOLOG[-1]:
             logfile.write("{}:{}:{}\n".format(Decimal(time.time()), origin, msg))
 
@@ -76,4 +78,3 @@ fresbase.sendCommand('1FC')
 fresbase.sendCommand('0FC')
 
 logfile.close()
-fresbase.stop()
