@@ -162,7 +162,7 @@ class FreseniusComm(serial.Serial):
         except Queue.Full:
             return False
 
-     def recvOne(self, block = True):
+    def recvOne(self, block = True):
         """
         Low-level reading of device replies.
         The reply is a tuple of (origin, message), where origin identifies the
@@ -176,7 +176,7 @@ class FreseniusComm(serial.Serial):
         except Queue.Empty:
             return None
 
-     def recvAll(self):
+    def recvAll(self):
         """
         Low-level reading of device replies.
         This function returns a list of all queued replies.
