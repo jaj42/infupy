@@ -7,5 +7,7 @@ setup(name         = 'infupy',
       author       = 'Jona Joachim',
       author_email = 'jona@joachim.cc',
       license      = 'ISC',
-      packages     = ['funniest'],
-      zip_safe     = False)
+      packages     = ['infupy', 'infupy.backends'],
+      install_requires=[
+          'pyserial',
+      ])
