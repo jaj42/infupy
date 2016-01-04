@@ -51,7 +51,7 @@ def stoplogging():
     DOLOG.append(False)
 
 while True:
-    cmd = raw_input(prompt)
+    cmd = input(prompt)
     if cmd == 'quit':
         break
     elif cmd == 'startlog':
