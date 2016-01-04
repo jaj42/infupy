@@ -2,33 +2,33 @@ import serial
 import threading
 import queue
 
-DEBUG = False
+DEBUG = True
 
 # Frame markers
-STX = '\x02'
-ETX = '\x03'
+STX = b'\x02'
+ETX = b'\x03'
 
 # Delivery control
-ACK = '\x06'
-NAK = '\x15'
+ACK = b'\x06'
+NAK = b'\x15'
 
 # Keep-alive
-ENQ = '\x05'
-DC4 = '\x14'
+ENQ = b'\x05'
+DC4 = b'\x14'
 
 # Allowed command characters
-CHROK = map(chr, range(0x20 , 0x7E))
+#CHROK = map(chr, range(0x20 , 0x7E))
 
 # Errors
 ERRdata = {
-    '\x31' : "Character Reception Problem",
-    '\x32' : "Incorrect Check-sum",
-#    '\x33' : "NOT USED",
-    '\x34' : "Incorrect Address",
-    '\x35' : "End of [ACK] Character time-out",
-    '\x36' : "Receiver not Ready",
-    '\x37' : "Incorrect Frame Length",
-    '\x38' : "Presence of Control Code"
+    b'\x31' : "Character Reception Problem",
+    b'\x32' : "Incorrect Check-sum",
+#    b'\x33' : "NOT USED",
+    b'\x34' : "Incorrect Address",
+    b'\x35' : "End of [ACK] Character time-out",
+    b'\x36' : "Receiver not Ready",
+    b'\x37' : "Incorrect Frame Length",
+    b'\x38' : "Presence of Control Code"
 }
 
 ERRcmd = {
@@ -75,18 +75,17 @@ def hexToBinArray(hexstr):
     return map(lambda x: bindict[x], binstr)
 
 def genCheckSum(msg):
-    asciivalues = map(ord, msg)
-    asciisum = sum(asciivalues)
+    asciisum = sum(msg)
     high, low = divmod(asciisum, 0x100)
     checksum = 0xFF - low
     checkstr = "{:02X}".format(checksum)
-    return checkstr
+    return bytes(checkstr, encoding='ASCII')
 
 def genFrame(msg):
     """
     Generate a frame to send to the device.
     """
-    return bytes(STX + msg + genCheckSum(msg) + ETX, encoding='ASCII')
+    return STX + bytes(msg, encoding='ASCII') + genCheckSum(msg) + ETX
 
 class FreseniusComm(serial.Serial):
     def __init__(self, port, baudrate = 19200):
@@ -144,7 +143,7 @@ class FreseniusComm(serial.Serial):
         device.
         Mixing low-level and high-level commands can lead to race conditions.
         """
-        self.cmdq.put(genFrame(msg))
+        self.cmdq.put(genFrame(bytes(msg, encoding='ASCII')))
         self.cmdq.join()
         return self.recvq.get()
 
@@ -157,7 +156,7 @@ class FreseniusComm(serial.Serial):
         Mixing low-level and high-level commands can lead to race conditions.
         """
         try:
-            self.cmdq.put(genFrame(msg), block = block)
+            self.cmdq.put(genFrame(bytes(msg, encoding='ASCII')), block = block)
             return True
         except queue.Full:
             return False
@@ -201,7 +200,7 @@ class RecvThread(threading.Thread):
         self.__txlock = txlock
         self.__sem    = sem
         self.__terminate = False
-        self.__buffer = ""
+        self.__buffer = b""
 
     def sendKeepalive(self):
         with self.__txlock:
@@ -220,7 +219,7 @@ class RecvThread(threading.Thread):
         chk   = rxstr[-2:]
         rxstr = rxstr[:-2]
         # Partition the string
-        splt   = rxstr.split(';', 1)
+        splt   = rxstr.split(b';', 1)
         origin = splt[0]
         if len(splt) > 1:
             msg = splt[1]
@@ -237,10 +236,10 @@ class RecvThread(threading.Thread):
 
     def enqueueRxBuffer(self):
         origin, msg, check = self.extractMessage(self.__buffer)
-        self.__buffer = ""
+        self.__buffer = b""
         self.sendACK()
 
-        if origin.endswith('I'):
+        if origin.endswith(b'I'):
             # Error condition
             if msg in ERRcmd:
                 errmsg = ERRcmd[msg]
@@ -250,7 +249,7 @@ class RecvThread(threading.Thread):
             self.__recvq.put((origin, errmsg))
             if DEBUG: print("Command error: {}".format(errmsg))
 
-        elif origin.endswith('E') or origin.endswith('M'):
+        elif origin.endswith(b'E') or origin.endswith(b'M'):
             # Spontaneously generated information. We need to acknowledge.
             # Do not allowNewCmd() here.
             self.sendSpontReply(origin)
