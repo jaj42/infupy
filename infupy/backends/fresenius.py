@@ -86,7 +86,7 @@ def genFrame(msg):
     """
     Generate a frame to send to the device.
     """
-    return STX + msg + genCheckSum(msg) + ETX
+    return bytes(STX + msg + genCheckSum(msg) + ETX, encoding='ASCII')
 
 class FreseniusComm(serial.Serial):
     def __init__(self, port, baudrate = 19200):
