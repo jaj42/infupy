@@ -1,6 +1,6 @@
 import serial
 import threading
-import Queue
+import queue
 
 DEBUG = False
 
@@ -99,8 +99,8 @@ class FreseniusComm(serial.Serial):
         if DEBUG:
             self.logfile = open('fresenius_raw.log', 'wb')
 
-        self.recvq  = Queue.Queue()
-        self.cmdq   = Queue.Queue(maxsize = 20)
+        self.recvq  = queue.Queue()
+        self.cmdq   = queue.Queue(maxsize = 20)
 
         # Write lock to make sure only one source writes at a time
         self.__txlock = threading.Lock()
@@ -159,7 +159,7 @@ class FreseniusComm(serial.Serial):
         try:
             self.cmdq.put(genFrame(msg), block = block)
             return True
-        except Queue.Full:
+        except queue.Full:
             return False
 
     def recvOne(self, block = True):
@@ -173,7 +173,7 @@ class FreseniusComm(serial.Serial):
         try:
             m = self.recvq.get(block = block)
             return m
-        except Queue.Empty:
+        except queue.Empty:
             return None
 
     def recvAll(self):
@@ -188,7 +188,7 @@ class FreseniusComm(serial.Serial):
             try:
                 m = self.recvq.get(block = False)
                 yield m
-            except Queue.Empty:
+            except queue.Empty:
                 break
 
 
@@ -248,7 +248,7 @@ class RecvThread(threading.Thread):
                 errmsg = "Unknown Error code {}".format(msg)
             self.allowNewCmd()
             self.__recvq.put((origin, errmsg))
-            if DEBUG: print "Commmand error: {}".format(errmsg)
+            if DEBUG: print("Command error: {}".format(errmsg))
 
         elif origin.endswith('E') or origin.endswith('M'):
             # Spontaneously generated information. We need to acknowledge.
@@ -275,7 +275,7 @@ class RecvThread(threading.Thread):
                     errmsg = ERRdata[c]
                 else:
                     errmsg = "Unknown Error code {}".format(c)
-                print "Protocol error: {}".format(errmsg)
+                print("Protocol error: {}".format(errmsg))
                 self.allowNewCmd()
                 insideNAKerr = False
             elif c == ACK:
@@ -292,7 +292,7 @@ class RecvThread(threading.Thread):
             elif insideCommand:
                 self.__buffer += c
             else:
-                if DEBUG: print "Unexpected char received: {}".format(c)
+                if DEBUG: print("Unexpected char received: {}".format(c))
 
 
 class SendThread(threading.Thread):
@@ -311,7 +311,7 @@ class SendThread(threading.Thread):
         while not self.__terminate:
             try:
                 msg = self.__cmdq.get(timeout = 2)
-            except Queue.Empty:
+            except queue.Empty:
                 continue
 
             self.__sem.acquire()

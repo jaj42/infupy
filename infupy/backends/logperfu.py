@@ -1,7 +1,6 @@
 import fresenius
 
 import threading
-import readline
 import time
 import sys
 from decimal import Decimal
@@ -21,8 +20,8 @@ fresbase = fresenius.FreseniusComm(port = port)
 def printrx():
     while True:
         origin, msg = fresbase.recvOne()
-        print "{}:{}\n{}".format(origin, msg, prompt)
-        print prompt
+        print("{}:{}\n{}".format(origin, msg, prompt))
+        print(prompt)
         if DOLOG[-1]:
             logfile.write("{}:{}:{}\n".format(Decimal(time.time()), origin, msg))
 
@@ -68,7 +67,7 @@ while True:
     elif cmd == 'qloop':
         querythread.start()
     elif cmd == 'qlen':
-        print fresbase.cmdq.qsize()
+        print(fresbase.cmdq.qsize())
     elif cmd == 'fastloop':
         for i in range(100): fresbase.sendCommand('1LE;d')
     else:
