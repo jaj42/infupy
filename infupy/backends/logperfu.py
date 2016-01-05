@@ -5,10 +5,10 @@ import time
 import sys
 from decimal import Decimal
 
-#fresbase.sendCommand('0DC')
-#fresbase.sendCommand('1DC')
-#fresbase.sendCommand('1DE;dg')
-#fresbase.sendCommand('1AE')
+#fresbase.sendCommand(b'0DC')
+#fresbase.sendCommand(b'1DC')
+#fresbase.sendCommand(b'1DE;dg')
+#fresbase.sendCommand(b'1AE')
 
 logfile = open('seringues.log', 'w')
 DOLOG = [False]
@@ -32,7 +32,7 @@ def queryloop():
         tnew = time.time()
         if tnew - tbase > Ts:
             # d = flow rate, r = infused volume
-            fresbase.sendCommand('1LE;dr')
+            fresbase.sendCommand(b'1LE;dr')
             tbase = tnew
             time.sleep(Ts / 4)
 
@@ -59,21 +59,21 @@ while True:
     elif cmd == 'stoplog':
         stoplogging()
     elif cmd == 'genvar':
-        fresbase.sendCommand('1DE;r')
-        fresbase.sendCommand('2DE;r')
+        fresbase.sendCommand(b'1DE;r')
+        fresbase.sendCommand(b'2DE;r')
     elif cmd == 'novar':
-        fresbase.sendCommand('1AE')
-        fresbase.sendCommand('2AE')
+        fresbase.sendCommand(b'1AE')
+        fresbase.sendCommand(b'2AE')
     elif cmd == 'qloop':
         querythread.start()
     elif cmd == 'qlen':
         print(fresbase.cmdq.qsize())
     elif cmd == 'fastloop':
-        for i in range(100): fresbase.sendCommand('1LE;d')
+        for i in range(100): fresbase.sendCommand(b'1LE;d')
     else:
-        fresbase.sendCommand(cmd)
+        fresbase.sendCommand(bytes(cmd, encoding='ASCII'))
 
-fresbase.sendCommand('1FC')
-fresbase.sendCommand('0FC')
+fresbase.sendCommand(b'1FC')
+fresbase.sendCommand(b'0FC')
 
 logfile.close()

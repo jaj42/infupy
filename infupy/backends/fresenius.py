@@ -2,7 +2,7 @@ import serial
 import threading
 import queue
 
-DEBUG = True
+DEBUG = False
 
 # Frame markers
 STX = b'\x02'
@@ -32,60 +32,55 @@ ERRdata = {
 }
 
 ERRcmd = {
-    '01' : "Unknown Command",
-    '02' : "Command disabled in the current Mode",
-    '03' : "Command disabled in this status",
-    '04' : "Syntax Error",
-    '05' : "Operating Mode not Authorized",
-    '06' : "Operating Mode already active",
-    '07' : "New operating mode disabled in this mode",
-    '08' : "Parameter out off limit",
-    '09' : "New operating mode disabled in this status",
-    '0A' : "Identifier not used",
-    '0B' : "Identifier incorrect",                          # a-z
-    '0C' : "Message too long",                              # <= 80
-    '0D' : "Communication session with the base not open",
-    '0E' : "Communication with module impossible",
-#    '0F' : "RESERVED",
-#    '11' : "RESERVED",
-    '12' : "Presence of an Alarm",
-#    '13' : "RESERVED",
-    '14' : "Attempt to launch infusion before flow rate selection",
-    '15' : "Insufficient Volume to launch a bolus",
-    '16' : "Impossible to launch the empy Syringe mode",
-#    '17' : "RESERVED",
-#    '18' : "RESERVED",
-#    '19' : "RESERVED",
-    '1A' : "Recorded event number incorrect",               # 1-64
-#    '1B' : "RESERVED",
-#    '1C' : "RESERVED",
-#    '1D' : "RESERVED",
-    '1E' : "The Communication with the module is not open",
-#    '1F' : "The Communication with the module is already open",
-    '1F' : "One of the modules is not in the manual mode",
-    '20' : "Command not authorized with this Port",
-    '22' : "New mode unauthorized",
-    '24' : "Connection Mode incorrect",
-    '25' : "Drug number incorrect"
+    b'01' : "Unknown Command",
+    b'02' : "Command disabled in the current Mode",
+    b'03' : "Command disabled in this status",
+    b'04' : "Syntax Error",
+    b'05' : "Operating Mode not Authorized",
+    b'06' : "Operating Mode already active",
+    b'07' : "New operating mode disabled in this mode",
+    b'08' : "Parameter out off limit",
+    b'09' : "New operating mode disabled in this status",
+    b'0A' : "Identifier not used",
+    b'0B' : "Identifier incorrect",                          # a-z
+    b'0C' : "Message too long",                              # <= 80
+    b'0D' : "Communication session with the base not open",
+    b'0E' : "Communication with module impossible",
+#    b'0F' : "RESERVED",
+#    b'11' : "RESERVED",
+    b'12' : "Presence of an Alarm",
+#    b'13' : "RESERVED",
+    b'14' : "Attempt to launch infusion before flow rate selection",
+    b'15' : "Insufficient Volume to launch a bolus",
+    b'16' : "Impossible to launch the empy Syringe mode",
+#    b'17' : "RESERVED",
+#    b'18' : "RESERVED",
+#    b'19' : "RESERVED",
+    b'1A' : "Recorded event number incorrect",               # 1-64
+#    b'1B' : "RESERVED",
+#    b'1C' : "RESERVED",
+#    b'1D' : "RESERVED",
+    b'1E' : "The Communication with the module is not open",
+#    b'1F' : "The Communication with the module is already open",
+    b'1F' : "One of the modules is not in the manual mode",
+    b'20' : "Command not authorized with this Port",
+    b'22' : "New mode unauthorized",
+    b'24' : "Connection Mode incorrect",
+    b'25' : "Drug number incorrect"
 }
-
-def hexToBinArray(hexstr):
-    bindict = {'0' : False, '1' : True}
-    binstr = "{:0>16b}".format(int(hexstr, 16))
-    return map(lambda x: bindict[x], binstr)
 
 def genCheckSum(msg):
     asciisum = sum(msg)
     high, low = divmod(asciisum, 0x100)
     checksum = 0xFF - low
-    checkstr = "{:02X}".format(checksum)
-    return bytes(checkstr, encoding='ASCII')
+    checkbytes = b"%02X" % checksum
+    return checkbytes
 
 def genFrame(msg):
     """
     Generate a frame to send to the device.
     """
-    return STX + bytes(msg, encoding='ASCII') + genCheckSum(msg) + ETX
+    return STX + msg + genCheckSum(msg) + ETX
 
 class FreseniusComm(serial.Serial):
     def __init__(self, port, baudrate = 19200):
@@ -133,8 +128,6 @@ class FreseniusComm(serial.Serial):
 
     def __del__(self):
         self.cmdq.join()
-        self.txthread.terminate()
-        self.rxthread.terminate()
 
     def execCommand(self, msg):
         """
@@ -143,7 +136,7 @@ class FreseniusComm(serial.Serial):
         device.
         Mixing low-level and high-level commands can lead to race conditions.
         """
-        self.cmdq.put(genFrame(bytes(msg, encoding='ASCII')))
+        self.cmdq.put(genFrame(msg))
         self.cmdq.join()
         return self.recvq.get()
 
@@ -156,7 +149,7 @@ class FreseniusComm(serial.Serial):
         Mixing low-level and high-level commands can lead to race conditions.
         """
         try:
-            self.cmdq.put(genFrame(bytes(msg, encoding='ASCII')), block = block)
+            self.cmdq.put(genFrame(msg), block = block)
             return True
         except queue.Full:
             return False
@@ -199,7 +192,6 @@ class RecvThread(threading.Thread):
         self.__cmdq   = cmdq
         self.__txlock = txlock
         self.__sem    = sem
-        self.__terminate = False
         self.__buffer = b""
 
     def sendKeepalive(self):
@@ -226,9 +218,6 @@ class RecvThread(threading.Thread):
         else:
             msg = None
         return (origin, msg, chk == genCheckSum(rxbytes))
-
-    def terminate(self):
-        self.__terminate = True
 
     def allowNewCmd(self):
         self.__cmdq.task_done()
@@ -265,7 +254,7 @@ class RecvThread(threading.Thread):
         # can happen any time and we need to reply quickly.
         insideNAKerr = False
         insideCommand = False
-        while not self.__terminate:
+        while True:
             c = self.__comm.read(1)
             if c == ENQ:
                 self.sendKeepalive()
@@ -302,17 +291,10 @@ class SendThread(threading.Thread):
         self.__cmdq   = cmdq
         self.__txlock = txlock
         self.__sem    = sem
-        self.__terminate = False
-
-    def terminate(self):
-        self.__terminate = True
 
     def run(self):
-        while not self.__terminate:
-            try:
-                msg = self.__cmdq.get(timeout = 2)
-            except queue.Empty:
-                continue
+        while True:
+            msg = self.__cmdq.get()
 
             self.__sem.acquire()
             with self.__txlock:
