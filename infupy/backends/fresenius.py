@@ -214,18 +214,18 @@ class RecvThread(threading.Thread):
         with self.__txlock:
             self.__comm.write(genFrame(origin))
 
-    def extractMessage(self, rxstr):
+    def extractMessage(self, rxbytes):
         # The checksum is in the last two bytes
-        chk   = rxstr[-2:]
-        rxstr = rxstr[:-2]
+        chk   = rxbytes[-2:]
+        rxbytes = rxbytes[:-2]
         # Partition the string
-        splt   = rxstr.split(b';', 1)
+        splt   = rxbytes.split(b';', 1)
         origin = splt[0]
         if len(splt) > 1:
             msg = splt[1]
         else:
             msg = None
-        return (origin, msg, chk == genCheckSum(rxstr))
+        return (origin, msg, chk == genCheckSum(rxbytes))
 
     def terminate(self):
         self.__terminate = True
@@ -246,8 +246,8 @@ class RecvThread(threading.Thread):
             else:
                 errmsg = "Unknown Error code {}".format(msg)
             self.allowNewCmd()
-            self.__recvq.put((origin, errmsg))
-            if DEBUG: print("Command error: {}".format(errmsg))
+            self.__recvq.put((b'E' + origin, errmsg))
+            if DEBUG: print("Commmand error: {}".format(errmsg))
 
         elif origin.endswith(b'E') or origin.endswith(b'M'):
             # Spontaneously generated information. We need to acknowledge.
@@ -275,6 +275,7 @@ class RecvThread(threading.Thread):
                 else:
                     errmsg = "Unknown Error code {}".format(c)
                 print("Protocol error: {}".format(errmsg))
+                self.__recvq.put((b'E', errmsg))
                 self.allowNewCmd()
                 insideNAKerr = False
             elif c == ACK:
