@@ -73,6 +73,7 @@ def genCheckSum(msg):
     asciisum = sum(msg)
     high, low = divmod(asciisum, 0x100)
     checksum = 0xFF - low
+    # Needs Python >= 3.5
     #checkbytes = b"%02X" % checksum
     checkbytes = ("%02X" % checksum).encode('ASCII')
     return checkbytes
