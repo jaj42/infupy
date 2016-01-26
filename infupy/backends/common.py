@@ -1,7 +1,3 @@
-import serial
-import threading
-import queue
-
 class Syringe():
     _callbacks = []
     _comm = None
