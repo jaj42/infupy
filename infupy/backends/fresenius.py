@@ -73,7 +73,8 @@ def genCheckSum(msg):
     asciisum = sum(msg)
     high, low = divmod(asciisum, 0x100)
     checksum = 0xFF - low
-    checkbytes = b"%02X" % checksum
+    #checkbytes = b"%02X" % checksum
+    checkbytes = ("%02X" % checksum).encode('ASCII')
     return checkbytes
 
 def genFrame(msg):
