@@ -1,6 +1,9 @@
 import serial
 import threading
 import queue
+import time
+
+import common
 
 DEBUG = False
 
@@ -79,10 +82,63 @@ def genCheckSum(msg):
     return checkbytes
 
 def genFrame(msg):
-    """
-    Generate a frame to send to the device.
-    """
     return STX + msg + genCheckSum(msg) + ETX
+
+class FreseniusSyringe(common.Syringe):
+    def __init__(self, comm, index = ''):
+        super(FreseniusSyringe, self).__init__(comm)
+
+        self.__index = index
+
+        self.recvq  = queue.Queue()
+        self.cmdq   = queue.Queue(maxsize = 10)
+
+        # Write lock to make sure only one source writes at a time
+        self.__txlock = threading.Lock()
+
+        self.rxthread = RecvThread(self, recvq  = self.recvq,
+                                         cmdq   = self.cmdq,
+                                         txlock = self.__txlock)
+
+        self.txthread = SendThread(self, cmdq   = self.cmdq,
+                                         txlock = self.__txlock)
+
+        self.rxthread.daemon = True
+        self.rxthread.start()
+
+        self.txthread.daemon = True
+        self.txthread.start()
+
+    def execRawCommand(self, msg):
+        """
+        Send a command and return the reply.
+        The reply is a tuple of (origin, message), where origin identifies the
+        device.
+        """
+        def qTimeout:
+            # XXX Return a real error
+            self.recvq.put(None)
+            self.cmdq.task_done()
+        
+        cmd = genFrame(self.__index + msg)
+        self.cmdq.put(cmd)
+
+        # There are some error conditions where the syringe gives no reply
+        # For example trying to connect to a non-existing module
+        # Time out after 2 seconds
+        t = Timer(2, qTimeout)
+        t.start()
+        self.cmdq.join()
+        t.cancel()
+
+        return self.recvq.get()
+
+    def readRate(self):
+        return execRawCommand(b'LE;d')
+
+    def readVolume(self):
+        return execRawCommand(b'LE;r')
+
 
 class FreseniusComm(serial.Serial):
     def __init__(self, port, baudrate = 19200):
@@ -95,29 +151,6 @@ class FreseniusComm(serial.Serial):
         if DEBUG:
             self.logfile = open('fresenius_raw.log', 'wb')
 
-        self.recvq  = queue.Queue()
-        self.cmdq   = queue.Queue(maxsize = 20)
-
-        # Write lock to make sure only one source writes at a time
-        self.__txlock = threading.Lock()
-        # Semaphore ensures that we wait for answers before sending new commands
-        self.__sem = threading.BoundedSemaphore(value = 1)
-
-        self.rxthread = RecvThread(self, recvq  = self.recvq,
-                                         cmdq   = self.cmdq,
-                                         txlock = self.__txlock,
-                                         sem    = self.__sem)
-
-        self.txthread = SendThread(self, cmdq   = self.cmdq,
-                                         txlock = self.__txlock,
-                                         sem    = self.__sem)
-
-        self.rxthread.daemon = True
-        self.rxthread.start()
-
-        self.txthread.daemon = True
-        self.txthread.start()
-
     if DEBUG:
         def read(self, size=1):
             data = super(FreseniusComm, self).read(size)
@@ -128,72 +161,14 @@ class FreseniusComm(serial.Serial):
             self.logfile.write(data)
             return super(FreseniusComm, self).write(data)
 
-    def __del__(self):
-        self.cmdq.join()
-
-    def execCommand(self, msg):
-        """
-        High-level access to send commands and read replies.
-        The reply is a tuple of (origin, message), where origin identifies the
-        device.
-        Mixing low-level and high-level commands can lead to race conditions.
-        """
-        self.cmdq.put(genFrame(msg))
-        self.cmdq.join()
-        return self.recvq.get()
-
-    def sendCommand(self, msg, block = False):
-        """
-        Low level sending of commands.
-        A maximum of 20 commands can be queued.
-        This function will return False when the queue is full, and block is
-        False. It will return True otherwise.
-        Mixing low-level and high-level commands can lead to race conditions.
-        """
-        try:
-            self.cmdq.put(genFrame(msg), block = block)
-            return True
-        except queue.Full:
-            return False
-
-    def recvOne(self, block = True):
-        """
-        Low-level reading of device replies.
-        The reply is a tuple of (origin, message), where origin identifies the
-        device.
-        If block is False and the queue is empty, None is returned.
-        Mixing low-level and high-level commands can lead to race conditions.
-        """
-        try:
-            m = self.recvq.get(block = block)
-            return m
-        except queue.Empty:
-            return None
-
-    def recvAll(self):
-        """
-        Low-level reading of device replies.
-        This function returns a list of all queued replies.
-        The replies are tuples of (origin, message), where origin identifies
-        the device.
-        You should not mix low-level and high-level access.
-        """
-        while not self.recvq.empty():
-            try:
-                m = self.recvq.get(block = False)
-                yield m
-            except queue.Empty:
-                break
-
 
 class RecvThread(threading.Thread):
-    def __init__(self, comm, recvq, cmdq, txlock, sem):
+    def __init__(self, comm, recvq, cmdq, txlock):
         super(RecvThread, self).__init__()
         self.__comm   = comm
         self.__recvq  = recvq
         self.__cmdq   = cmdq
         self.__txlock = txlock
-        self.__sem    = sem
         self.__buffer = b""
 
     def sendKeepalive(self):
@@ -223,7 +198,6 @@ class RecvThread(threading.Thread):
 
     def allowNewCmd(self):
         self.__cmdq.task_done()
-        self.__sem.release()
 
     def enqueueRxBuffer(self):
         origin, msg, check = self.extractMessage(self.__buffer)
@@ -287,17 +261,15 @@ class RecvThread(threading.Thread):
 
 
 class SendThread(threading.Thread):
-    def __init__(self, comm, cmdq, txlock, sem):
+    def __init__(self, comm, cmdq, txlock):
         super(SendThread, self).__init__()
         self.__comm   = comm
         self.__cmdq   = cmdq
         self.__txlock = txlock
-        self.__sem    = sem
 
     def run(self):
         while True:
             msg = self.__cmdq.get()
 
-            self.__sem.acquire()
             with self.__txlock:
                 self.__comm.write(msg)

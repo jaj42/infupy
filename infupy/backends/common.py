@@ -13,10 +13,10 @@ class Syringe():
 
     # Read Perfusion related values
     def readRate(self):
-        pass
+        return 0
 
     def readVolume(self):
-        pass
+        return 0
 
     # Infusion control
     def setRate(self, rate):
