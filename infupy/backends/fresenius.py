@@ -3,6 +3,8 @@ import threading
 import queue
 import time
 
+from enum import Enum
+
 from common import *
 
 DEBUG = False
@@ -18,16 +20,6 @@ def genCheckSum(msg):
 
 def genFrame(msg):
     return STX + msg + genCheckSum(msg) + ETX
-
-class Reply(object):
-    __slots__ = ('origin', 'value', 'error')
-    def __init__(self, origin = None, value = None, error = False):
-        self.origin = origin
-        self.value  = value
-        self.error  = error
-
-    def __str__(self):
-        return "Fresenius Reply: Origin={}, Value={}, Error={}".format(self.origin, self.value, self.error)
 
 class FreseniusSyringe(Syringe):
     def __init__(self, comm, index = ''):
@@ -56,19 +48,21 @@ class FreseniusSyringe(Syringe):
         return result
 
     def connect(self):
-        return self.execRawCommand(b'DC')
+        return self.execRawCommand(Commmand.connect.value)
 
     def disconnect(self):
-        return self.execRawCommand(b'FC')
+        return self.execRawCommand(Commmand.disconnect.value)
 
     def readRate(self):
-        reply = self.execRawCommand(b'LE;d')
+        reply = self.execRawCommand(Commmand.readvar.value + b';'
+                                  + VarId.rate.value)
         # XXX handle error condition
         n = int(reply.value[1:], 16)
         return (10**-1 * n)
 
     def readVolume(self):
-        reply = self.execRawCommand(b'LE;r')
+        reply = self.execRawCommand(Commmand.readvar.value + b';'
+                                  + VarId.volume.value)
         # XXX handle error condition
         n = int(reply.value[1:], 16)
         return (10**-3 * n)
@@ -82,7 +76,8 @@ class FreseniusBase(FreseniusSyringe):
 
     def connectedModules(self):
         modules = []
-        reply = self.execRawCommand(b'LE;b')
+        reply = self.execRawCommand(Commmand.readvar.value + b';'
+                                  + BaseId.modules.value)
         # XXX handle error condition
         binmods = int(reply.value[1:], 16)
         for i in range(5):
@@ -260,6 +255,72 @@ DC4 = b'\x14'
 
 # Allowed command characters
 #CHROK = map(chr, range(0x20 , 0x7E))
+
+class Reply(object):
+    __slots__ = ('origin', 'value', 'error')
+    def __init__(self, origin = None, value = None, error = False):
+        self.origin = origin
+        self.value  = value
+        self.error  = error
+
+    def __str__(self):
+        return "Fresenius Reply: Origin={}, Value={}, Error={}".format(self.origin, self.value, self.error)
+
+class Commands(Enum):
+    connect      = b'DC'
+    disconnect   = b'FC'
+    mode         = b'MO'
+    reset        = b'RZ'
+    off          = b'OF'
+    silence      = b'SI'
+    setdrug      = b'EP'
+    readdrug     = b'LP'
+    showdrug     = b'AP'
+    setid        = b'EN'
+    readid       = b'LN'
+    enspont      = b'DE'
+    disspont     = b'AE'
+    readvar      = b'LE'
+    enspontadj   = b'DM'
+    disspontadj  = b'AM'
+    readadj      = b'LM'
+    readfixed    = b'LF'
+    setrate      = b'PR'
+    setpause     = b'PO'
+    setbolus     = b'PB'
+    setempty     = b'PF'
+    setlimvolume = b'PV'
+    resetvolume  = b'RV'
+    pressurelim  = b'PP'
+    dynpressure  = b'PS'
+
+class VarId(Enum):
+    alarm   = b'a'
+    preal   = b'b'
+    error   = b'e'
+    mode    = b'm'
+    rate    = b'd'
+    volume  = b'r'
+    bolrate = b'k'
+    bolvol  = b's'
+
+class BaseId(Enum):
+    alarm   = b'a'
+    mode    = b'm'
+    nummods = b'i'
+    modules = b'b'
+    module1 = b'c'
+    module2 = b'd'
+    module3 = b'e'
+    module4 = b'f'
+    module5 = b'g'
+    module6 = b'h'
+
+class ReplyStatus(Enum):
+    correct   = b'C'
+    incorrect = b'I'
+    spont     = b'E'
+    spontadj  = b'M'
 
 # Errors
 ERRdata = {
