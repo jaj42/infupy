@@ -1,7 +1,6 @@
 import serial
 import threading
 import queue
-import time
 
 from enum import Enum
 
@@ -21,12 +20,57 @@ def genCheckSum(msg):
 def genFrame(msg):
     return STX + msg + genCheckSum(msg) + ETX
 
+def parseReply(rxbytes):
+    # The checksum is in the last two bytes
+    chk   = rxbytes[-2:]
+    rxmsg = rxbytes[:-2]
+
+    # Partition the string
+    splt   = rxmsg.split(b';', 1)
+    meta = splt[0]
+    if len(splt) > 1:
+        msg = splt[1]
+    else:
+        msg = None
+
+    # Read meta data
+    if len(meta) > 1:
+        origin = meta[0:1]
+        status = meta[1:2]
+    else:
+        origin = None
+        status = meta[0:1]
+
+    try:
+        restat = ReplyStatus(status)
+    except ValueError:
+        restat = ReplyStatus.incorrect
+
+    return (restat, origin, msg, chk == genCheckSum(rxmsg))
+
+def parseVars(msg):
+    ret = dict()
+    if msg is None:
+        return ret
+    for repvar in msg.split(b';'):
+        idbytes = repvar[0:1]
+        value = repvar[1:]
+        try:
+            ident = VarId(idbytes)
+        except ValueError:
+            continue
+        ret[ident] = value
+
+    return ret
+
+
 class FreseniusSyringe(Syringe):
     def __init__(self, comm, index = ''):
         super(FreseniusSyringe, self).__init__()
         self.__comm  = comm
         self.__index = str(index).encode('ASCII')
         self.connect()
+        self.__comm.callbacks[self.__index] = []
 
     def execRawCommand(self, msg):
         def qTimeout():
@@ -43,29 +87,67 @@ class FreseniusSyringe(Syringe):
         t.cancel()
 
         result = self.__comm.recvq.get()
-        if result.error == True:
-            raise CommError(result.value)
+        if result.error == True and result.value == "Timeout":
+            raise CommunicationError(result.value)
         return result
 
+    def execCommand(self, command, flags=[], args=[]):
+        if len(flags) > 0:
+            flagvals = map(lambda x: x.value, flags)
+            flagbytes = b''.join(flagvals)
+            commandraw = command.value + b';' + flagbytes
+        elif len(args) > 0:
+            argbytes = b';'.join(args)
+            commandraw = command.value + b';' + argbytes
+        else:
+            commandraw = command.value
+        return self.execRawCommand(commandraw)
+
     def connect(self):
-        return self.execRawCommand(Commmand.connect.value)
+        return self.execCommand(Command.connect)
 
     def disconnect(self):
-        return self.execRawCommand(Commmand.disconnect.value)
+        return self.execCommand(Command.disconnect)
 
     def readRate(self):
-        reply = self.execRawCommand(Commmand.readvar.value + b';'
-                                  + VarId.rate.value)
-        # XXX handle error condition
-        n = int(reply.value[1:], 16)
+        reply = self.execCommand(Command.readvar, flags=[VarId.rate])
+        if reply.error:
+            raise CommandError(result.value)
+        results = parseVars(reply.value)
+        n = int(results[VarId.rate], 16)
         return (10**-1 * n)
 
     def readVolume(self):
-        reply = self.execRawCommand(Commmand.readvar.value + b';'
-                                  + VarId.volume.value)
-        # XXX handle error condition
-        n = int(reply.value[1:], 16)
+        reply = self.execCommand(Command.readvar, flags=[VarId.volume])
+        if reply.error:
+            raise CommandError(result.value)
+        results = parseVars(reply.value)
+        n = int(results[VarId.volume], 16)
         return (10**-3 * n)
+
+    def addCallback(self, func):
+        self.__comm.callbacks[self.__index].append(func)
+
+    def registerEvent(self, event):
+        super(FreseniusSyringe, self).registerEvent(event)
+        reply = self.execCommand(Command.enspont, flags=self._events)
+        if reply.error:
+            raise CommandError(result.value)
+
+    def unregisterEvent(self, event):
+        super(FreseniusSyringe, self).unregisterEvent(event)
+        reply = self.execCommand(Command.disspont)
+        if reply.error:
+            raise CommandError(result.value)
+        reply = self.execCommand(Command.enspont, flags=self._events)
+        if reply.error:
+            raise CommandError(result.value)
+
+    def clearEvents(self):
+        super(FreseniusSyringe, self).clearEvents()
+        reply = self.execCommand(Command.disspont)
+        if reply.error:
+            raise CommandError(result.value)
 
 class FreseniusBase(FreseniusSyringe):
     def __init__(self, comm):
@@ -74,12 +156,13 @@ class FreseniusBase(FreseniusSyringe):
     def __del__(self):
         self.disconnect()
 
-    def connectedModules(self):
+    def listModules(self):
         modules = []
-        reply = self.execRawCommand(Commmand.readvar.value + b';'
-                                  + BaseId.modules.value)
-        # XXX handle error condition
-        binmods = int(reply.value[1:], 16)
+        reply = self.execCommand(Command.readvar, flags=[VarId.modules])
+        if reply.error:
+            raise CommandError(result.value)
+        results = parseVars(reply.value)
+        binmods = int(results[VarId.modules], 16)
         for i in range(5):
             if (1 << i) & binmods:
                 modules.append(i + 1)
@@ -98,6 +181,7 @@ class FreseniusComm(serial.Serial):
 
         self.recvq = queue.Queue()
         self.cmdq  = queue.Queue(maxsize = 10)
+        self.callbacks = dict()
 
         # Write lock to make sure only one source writes at a time
         self.txlock = threading.Lock()
@@ -145,32 +229,19 @@ class RecvThread(threading.Thread):
         with self.__txlock:
             self.__comm.write(ACK)
 
-    def sendSpontReply(self, origin):
+    def sendSpontReply(self, origin, status):
         with self.__txlock:
-            self.__comm.write(genFrame(origin))
-
-    def extractMessage(self, rxbytes):
-        # The checksum is in the last two bytes
-        chk   = rxbytes[-2:]
-        rxbytes = rxbytes[:-2]
-        # Partition the string
-        splt   = rxbytes.split(b';', 1)
-        origin = splt[0]
-        if len(splt) > 1:
-            msg = splt[1]
-        else:
-            msg = None
-        return (origin, msg, chk == genCheckSum(rxbytes))
+            self.__comm.write(genFrame(origin + status.value))
 
     def allowNewCmd(self):
         self.__cmdq.task_done()
 
     def enqueueRxBuffer(self):
-        origin, msg, check = self.extractMessage(self.__buffer)
+        status, origin, msg, check = parseReply(self.__buffer)
         self.__buffer = b""
         self.sendACK()
 
-        if origin.endswith(b'I'):
+        if status is ReplyStatus.incorrect:
             # Error condition
             if msg in ERRcmd:
                 errmsg = ERRcmd[msg]
@@ -178,18 +249,22 @@ class RecvThread(threading.Thread):
                 errmsg = "Unknown Error code {}".format(msg)
             self.allowNewCmd()
             self.__recvq.put(Reply(origin, errmsg, error = True))
-            if DEBUG: print("Commmand error: {}".format(errmsg))
+            if DEBUG: print("Command error: {}".format(errmsg))
 
-        elif origin.endswith(b'E') or origin.endswith(b'M'):
-            # Spontaneously generated information. We need to acknowledge.
-            # Do not allowNewCmd() here.
-            self.sendSpontReply(origin)
-            self.__recvq.put(Reply(origin, msg))
-
-        else:
-            # This is a reply to one of our commands 
+        elif status is ReplyStatus.correct:
+            # This is a reply to one of our commands
             self.__recvq.put(Reply(origin, msg))
             self.allowNewCmd()
+
+        elif status is ReplyStatus.spont or status is ReplyStatus.spontadj:
+            # Spontaneously generated information. We need to acknowledge.
+            self.sendSpontReply(origin, status)
+            if origin in self.__comm.callbacks:
+                for func in self.__comm.callbacks[origin]:
+                    func(origin, msg)
+
+        else:
+            pass
 
     def run(self):
         # We need to read byte by byte because ENQ/DC4 line monitoring
@@ -266,7 +341,7 @@ class Reply(object):
     def __str__(self):
         return "Fresenius Reply: Origin={}, Value={}, Error={}".format(self.origin, self.value, self.error)
 
-class Commands(Enum):
+class Command(Enum):
     connect      = b'DC'
     disconnect   = b'FC'
     mode         = b'MO'
@@ -296,25 +371,14 @@ class Commands(Enum):
 
 class VarId(Enum):
     alarm   = b'a'
-    preal   = b'b'
     error   = b'e'
     mode    = b'm'
     rate    = b'd'
     volume  = b'r'
     bolrate = b'k'
     bolvol  = b's'
-
-class BaseId(Enum):
-    alarm   = b'a'
-    mode    = b'm'
     nummods = b'i'
     modules = b'b'
-    module1 = b'c'
-    module2 = b'd'
-    module3 = b'e'
-    module4 = b'f'
-    module5 = b'g'
-    module6 = b'h'
 
 class ReplyStatus(Enum):
     correct   = b'C'

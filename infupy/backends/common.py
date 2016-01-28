@@ -1,13 +1,12 @@
-class CommError(Exception):
+class CommunicationError(Exception):
     def __str__(self):
         return "Communication error. Reason: {}".format(self.args)
 
-class ModError(Exception):
+class CommandError(Exception):
     def __str__(self):
-        return "Command error."
+        return "Command error. {}".format(self.args)
 
 class Syringe():
-    _callbacks = []
     _events = set()
 
     def __init__(self):
@@ -35,13 +34,10 @@ class Syringe():
 
     # Events
     def registerEvent(self, event):
-        self._events |= set(event)
+        self._events |= set([event])
 
     def unregisterEvent(self, event):
-        self._events -= set(event)
+        self._events -= set([event])
 
     def clearEvents(self):
         self._events = set()
-
-    def addCallback(self, func):
-        self._callbacks.append(func)
