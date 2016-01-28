@@ -4,7 +4,7 @@ import queue
 
 from enum import Enum
 
-from common import *
+from infupy.backends.common import *
 
 DEBUG = False
 
@@ -72,6 +72,9 @@ class FreseniusSyringe(Syringe):
         self.connect()
         self.__comm.callbacks[self.__index] = []
 
+    def __del__(self):
+        self.disconnect()
+
     def execRawCommand(self, msg):
         def qTimeout():
             self.__comm.recvq.put(Reply(error = True, value = "Timeout"))
@@ -124,6 +127,12 @@ class FreseniusSyringe(Syringe):
         results = parseVars(reply.value)
         n = int(results[VarId.volume], 16)
         return (10**-3 * n)
+
+    def readDrug(self):
+        reply = self.execCommand(Command.readdrug)
+        if reply.error:
+            raise CommandError(result.value)
+        return reply.value
 
     def addCallback(self, func):
         self.__comm.callbacks[self.__index].append(func)
