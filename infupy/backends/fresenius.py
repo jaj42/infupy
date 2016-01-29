@@ -60,9 +60,25 @@ def parseVars(msg):
         except ValueError:
             continue
         ret[ident] = value
-
     return ret
 
+def extractRate(msg):
+    vals = parseVars(msg)
+    if VarId.rate in vals.keys():
+        vol = vals[VarId.rate]
+    else:
+        raise ValueError
+    n = int(vol, 16)
+    return (10**-1 * n)
+
+def extractVolume(msg):
+    vals = parseVars(msg)
+    if VarId.volume in vals.keys():
+        vol = vals[VarId.volume]
+    else:
+        raise ValueError
+    n = int(vol, 16)
+    return (10**-3 * n)
 
 class FreseniusSyringe(Syringe):
     def __init__(self, comm, index = ''):
@@ -116,23 +132,24 @@ class FreseniusSyringe(Syringe):
         reply = self.execCommand(Command.readvar, flags=[VarId.rate])
         if reply.error:
             raise CommandError(result.value)
-        results = parseVars(reply.value)
-        n = int(results[VarId.rate], 16)
-        return (10**-1 * n)
+        return extractRate(reply.value)
 
     def readVolume(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.volume])
         if reply.error:
             raise CommandError(result.value)
-        results = parseVars(reply.value)
-        n = int(results[VarId.volume], 16)
-        return (10**-3 * n)
+        return extractVolume(reply.value)
 
     def readDrug(self):
         reply = self.execCommand(Command.readdrug)
         if reply.error:
             raise CommandError(result.value)
         return reply.value
+
+    def resetVolume(self):
+        reply = self.execCommand(Command.resetvolume)
+        if reply.error:
+            raise CommandError(result.value)
 
     def addCallback(self, func):
         self.__comm.callbacks[self.__index].append(func)
