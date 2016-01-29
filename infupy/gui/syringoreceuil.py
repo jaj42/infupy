@@ -6,8 +6,6 @@ import infupy.backends.fresenius as fresenius
 
 import time,csv
 
-        
-
 class MainUi(QtGui.QMainWindow, Ui_wndMain):
     def __init__(self, parent=None):
         super(MainUi, self).__init__(parent=parent)
@@ -33,10 +31,10 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
             self.base = fresenius.FreseniusBase(self.conn)
         except:
             self.conn = None
-            self.statusBar.setStyleSheet("QStatusBar{background:red;}")
+            self.statusBar.setStyleSheet("QStatusBar{background : red;}")
             self.statusBar.showMessage('Erreur de connexion')
         else:
-            self.statusBar.setStyleSheet("QStatusBar{background:green;}")
+            self.statusBar.setStyleSheet("QStatusBar{background : green;}")
             self.statusBar.showMessage('Connexion ok')
             self.filename = time.strftime('%Y%m%d-%H%M.csv')
             self.file = open(self.filename, 'w', newline='')
