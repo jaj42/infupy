@@ -2,7 +2,345 @@ import serial
 import threading
 import queue
 
+from enum import Enum
+
+from infupy.backends.common import *
+
 DEBUG = False
+
+def genCheckSum(msg):
+    asciisum = sum(msg)
+    high, low = divmod(asciisum, 0x100)
+    checksum = 0xFF - low
+    # Needs Python >= 3.5
+    #checkbytes = b"%02X" % checksum
+    checkbytes = ("%02X" % checksum).encode('ASCII')
+    return checkbytes
+
+def genFrame(msg):
+    return STX + msg + genCheckSum(msg) + ETX
+
+def parseReply(rxbytes):
+    # The checksum is in the last two bytes
+    chk   = rxbytes[-2:]
+    rxmsg = rxbytes[:-2]
+
+    # Partition the string
+    splt   = rxmsg.split(b';', 1)
+    meta = splt[0]
+    if len(splt) > 1:
+        msg = splt[1]
+    else:
+        msg = None
+
+    # Read meta data
+    if len(meta) > 1:
+        origin = meta[0:1]
+        status = meta[1:2]
+    else:
+        origin = None
+        status = meta[0:1]
+
+    try:
+        restat = ReplyStatus(status)
+    except ValueError:
+        restat = ReplyStatus.incorrect
+
+    return (restat, origin, msg, chk == genCheckSum(rxmsg))
+
+def parseVars(msg):
+    ret = dict()
+    if msg is None:
+        return ret
+    for repvar in msg.split(b';'):
+        idbytes = repvar[0:1]
+        value = repvar[1:]
+        try:
+            ident = VarId(idbytes)
+        except ValueError:
+            continue
+        ret[ident] = value
+    return ret
+
+def extractRate(msg):
+    vals = parseVars(msg)
+    if VarId.rate in vals.keys():
+        vol = vals[VarId.rate]
+    else:
+        raise ValueError
+    n = int(vol, 16)
+    return (10**-1 * n)
+
+def extractVolume(msg):
+    vals = parseVars(msg)
+    if VarId.volume in vals.keys():
+        vol = vals[VarId.volume]
+    else:
+        raise ValueError
+    n = int(vol, 16)
+    return (10**-3 * n)
+
+class FreseniusSyringe(Syringe):
+    def __init__(self, comm, index = ''):
+        super(FreseniusSyringe, self).__init__()
+        self.__comm  = comm
+        self.__index = str(index).encode('ASCII')
+        self.connect()
+        self.__comm.callbacks[self.__index] = []
+
+    def __del__(self):
+        self.disconnect()
+
+    def execRawCommand(self, msg):
+        def qTimeout():
+            self.__comm.recvq.put(Reply(error = True, value = "Timeout"))
+            self.__comm.cmdq.task_done()
+        
+        cmd = genFrame(self.__index + msg)
+        self.__comm.cmdq.put(cmd)
+
+        # Time out after 2 seconds in case of communication failure.
+        t = threading.Timer(2, qTimeout)
+        t.start()
+        self.__comm.cmdq.join()
+        t.cancel()
+
+        result = self.__comm.recvq.get()
+        if result.error == True and result.value == "Timeout":
+            raise CommunicationError(result.value)
+        return result
+
+    def execCommand(self, command, flags=[], args=[]):
+        if len(flags) > 0:
+            flagvals = map(lambda x: x.value, flags)
+            flagbytes = b''.join(flagvals)
+            commandraw = command.value + b';' + flagbytes
+        elif len(args) > 0:
+            argbytes = b';'.join(args)
+            commandraw = command.value + b';' + argbytes
+        else:
+            commandraw = command.value
+        return self.execRawCommand(commandraw)
+
+    def connect(self):
+        return self.execCommand(Command.connect)
+
+    def disconnect(self):
+        return self.execCommand(Command.disconnect)
+
+    def readRate(self):
+        reply = self.execCommand(Command.readvar, flags=[VarId.rate])
+        if reply.error:
+            raise CommandError(result.value)
+        return extractRate(reply.value)
+
+    def readVolume(self):
+        reply = self.execCommand(Command.readvar, flags=[VarId.volume])
+        if reply.error:
+            raise CommandError(result.value)
+        return extractVolume(reply.value)
+
+    def readDrug(self):
+        reply = self.execCommand(Command.readdrug)
+        if reply.error:
+            raise CommandError(result.value)
+        return reply.value
+
+    def resetVolume(self):
+        reply = self.execCommand(Command.resetvolume)
+        if reply.error:
+            raise CommandError(result.value)
+
+    def addCallback(self, func):
+        self.__comm.callbacks[self.__index].append(func)
+
+    def registerEvent(self, event):
+        super(FreseniusSyringe, self).registerEvent(event)
+        reply = self.execCommand(Command.enspont, flags=self._events)
+        if reply.error:
+            raise CommandError(result.value)
+
+    def unregisterEvent(self, event):
+        super(FreseniusSyringe, self).unregisterEvent(event)
+        reply = self.execCommand(Command.disspont)
+        if reply.error:
+            raise CommandError(result.value)
+        reply = self.execCommand(Command.enspont, flags=self._events)
+        if reply.error:
+            raise CommandError(result.value)
+
+    def clearEvents(self):
+        super(FreseniusSyringe, self).clearEvents()
+        reply = self.execCommand(Command.disspont)
+        if reply.error:
+            raise CommandError(result.value)
+
+class FreseniusBase(FreseniusSyringe):
+    def __init__(self, comm):
+        super(FreseniusBase, self).__init__(comm, 0)
+
+    def __del__(self):
+        self.disconnect()
+
+    def listModules(self):
+        modules = []
+        reply = self.execCommand(Command.readvar, flags=[VarId.modules])
+        if reply.error:
+            raise CommandError(result.value)
+        results = parseVars(reply.value)
+        binmods = int(results[VarId.modules], 16)
+        for i in range(5):
+            if (1 << i) & binmods:
+                modules.append(i + 1)
+        return modules
+
+class FreseniusComm(serial.Serial):
+    def __init__(self, port, baudrate = 19200):
+        # These settings come from Fresenius documentation
+        super(FreseniusComm, self).__init__(port     = port,
+                                            baudrate = baudrate,
+                                            bytesize = serial.SEVENBITS,
+                                            parity   = serial.PARITY_EVEN,
+                                            stopbits = serial.STOPBITS_ONE)
+        if DEBUG:
+            self.logfile = open('fresenius_raw.log', 'wb')
+
+        self.recvq = queue.Queue()
+        self.cmdq  = queue.Queue(maxsize = 10)
+        self.callbacks = dict()
+
+        # Write lock to make sure only one source writes at a time
+        self.txlock = threading.Lock()
+
+        self.__rxthread = RecvThread(comm   = self,
+                                     recvq  = self.recvq,
+                                     cmdq   = self.cmdq,
+                                     txlock = self.txlock)
+
+        self.__txthread = SendThread(comm   = self,
+                                     cmdq   = self.cmdq,
+                                     txlock = self.txlock)
+
+        self.__rxthread.daemon = True
+        self.__rxthread.start()
+
+        self.__txthread.daemon = True
+        self.__txthread.start()
+
+    if DEBUG:
+        def read(self, size=1):
+            data = super(FreseniusComm, self).read(size)
+            self.logfile.write(data)
+            return data
+
+        def write(self, data):
+            self.logfile.write(data)
+            return super(FreseniusComm, self).write(data)
+
+
+class RecvThread(threading.Thread):
+    def __init__(self, comm, recvq, cmdq, txlock):
+        super(RecvThread, self).__init__()
+        self.__comm   = comm
+        self.__recvq  = recvq
+        self.__cmdq   = cmdq
+        self.__txlock = txlock
+        self.__buffer = b""
+
+    def sendKeepalive(self):
+        with self.__txlock:
+            self.__comm.write(DC4)
+
+    def sendACK(self):
+        with self.__txlock:
+            self.__comm.write(ACK)
+
+    def sendSpontReply(self, origin, status):
+        with self.__txlock:
+            self.__comm.write(genFrame(origin + status.value))
+
+    def allowNewCmd(self):
+        self.__cmdq.task_done()
+
+    def enqueueRxBuffer(self):
+        status, origin, msg, check = parseReply(self.__buffer)
+        self.__buffer = b""
+        self.sendACK()
+
+        if status is ReplyStatus.incorrect:
+            # Error condition
+            if msg in ERRcmd:
+                errmsg = ERRcmd[msg]
+            else:
+                errmsg = "Unknown Error code {}".format(msg)
+            self.allowNewCmd()
+            self.__recvq.put(Reply(origin, errmsg, error = True))
+            if DEBUG: print("Command error: {}".format(errmsg))
+
+        elif status is ReplyStatus.correct:
+            # This is a reply to one of our commands
+            self.__recvq.put(Reply(origin, msg))
+            self.allowNewCmd()
+
+        elif status is ReplyStatus.spont or status is ReplyStatus.spontadj:
+            # Spontaneously generated information. We need to acknowledge.
+            self.sendSpontReply(origin, status)
+            if origin in self.__comm.callbacks:
+                for func in self.__comm.callbacks[origin]:
+                    func(origin, msg)
+
+        else:
+            pass
+
+    def run(self):
+        # We need to read byte by byte because ENQ/DC4 line monitoring
+        # can happen any time and we need to reply quickly.
+        insideNAKerr = False
+        insideCommand = False
+        while True:
+            c = self.__comm.read(1)
+            if c == ENQ:
+                self.sendKeepalive()
+            elif insideNAKerr:
+                if c in ERRdata:
+                    errmsg = ERRdata[c]
+                else:
+                    errmsg = "Unknown Error code {}".format(c)
+                print("Protocol error: {}".format(errmsg))
+                self.__recvq.put(Reply(error= True, value = errmsg))
+                self.allowNewCmd()
+                insideNAKerr = False
+            elif c == ACK:
+                pass
+            elif c == STX:
+                # Start of command marker
+                insideCommand = True
+            elif c == ETX:
+                # End of command marker
+                insideCommand = False
+                self.enqueueRxBuffer()
+            elif c == NAK:
+                insideNAKerr = True
+            elif insideCommand:
+                self.__buffer += c
+            else:
+                if DEBUG: print("Unexpected char received: {}".format(c))
+
+
+class SendThread(threading.Thread):
+    def __init__(self, comm, cmdq, txlock):
+        super(SendThread, self).__init__()
+        self.__comm   = comm
+        self.__cmdq   = cmdq
+        self.__txlock = txlock
+
+    def run(self):
+        while True:
+            msg = self.__cmdq.get()
+
+            with self.__txlock:
+                self.__comm.write(msg)
+
 
 # Frame markers
 STX = b'\x02'
@@ -18,6 +356,61 @@ DC4 = b'\x14'
 
 # Allowed command characters
 #CHROK = map(chr, range(0x20 , 0x7E))
+
+class Reply(object):
+    __slots__ = ('origin', 'value', 'error')
+    def __init__(self, origin = None, value = None, error = False):
+        self.origin = origin
+        self.value  = value
+        self.error  = error
+
+    def __str__(self):
+        return "Fresenius Reply: Origin={}, Value={}, Error={}".format(self.origin, self.value, self.error)
+
+class Command(Enum):
+    connect      = b'DC'
+    disconnect   = b'FC'
+    mode         = b'MO'
+    reset        = b'RZ'
+    off          = b'OF'
+    silence      = b'SI'
+    setdrug      = b'EP'
+    readdrug     = b'LP'
+    showdrug     = b'AP'
+    setid        = b'EN'
+    readid       = b'LN'
+    enspont      = b'DE'
+    disspont     = b'AE'
+    readvar      = b'LE'
+    enspontadj   = b'DM'
+    disspontadj  = b'AM'
+    readadj      = b'LM'
+    readfixed    = b'LF'
+    setrate      = b'PR'
+    setpause     = b'PO'
+    setbolus     = b'PB'
+    setempty     = b'PF'
+    setlimvolume = b'PV'
+    resetvolume  = b'RV'
+    pressurelim  = b'PP'
+    dynpressure  = b'PS'
+
+class VarId(Enum):
+    alarm   = b'a'
+    error   = b'e'
+    mode    = b'm'
+    rate    = b'd'
+    volume  = b'r'
+    bolrate = b'k'
+    bolvol  = b's'
+    nummods = b'i'
+    modules = b'b'
+
+class ReplyStatus(Enum):
+    correct   = b'C'
+    incorrect = b'I'
+    spont     = b'E'
+    spontadj  = b'M'
 
 # Errors
 ERRdata = {
@@ -68,235 +461,3 @@ ERRcmd = {
     b'24' : "Connection Mode incorrect",
     b'25' : "Drug number incorrect"
 }
-
-def genCheckSum(msg):
-    asciisum = sum(msg)
-    high, low = divmod(asciisum, 0x100)
-    checksum = 0xFF - low
-    #checkbytes = b"%02X" % checksum
-    checkbytes = ("%02X" % checksum).encode('ASCII')
-    return checkbytes
-
-def genFrame(msg):
-    """
-    Generate a frame to send to the device.
-    """
-    return STX + msg + genCheckSum(msg) + ETX
-
-class FreseniusComm(serial.Serial):
-    def __init__(self, port, baudrate = 19200):
-        # These settings come from Fresenius documentation
-        super(FreseniusComm, self).__init__(port     = port,
-                                            baudrate = baudrate,
-                                            bytesize = serial.SEVENBITS,
-                                            parity   = serial.PARITY_EVEN,
-                                            stopbits = serial.STOPBITS_ONE)
-        if DEBUG:
-            self.logfile = open('fresenius_raw.log', 'wb')
-
-        self.recvq  = queue.Queue()
-        self.cmdq   = queue.Queue(maxsize = 20)
-
-        # Write lock to make sure only one source writes at a time
-        self.__txlock = threading.Lock()
-        # Semaphore ensures that we wait for answers before sending new commands
-        self.__sem = threading.BoundedSemaphore(value = 1)
-
-        self.rxthread = RecvThread(self, recvq  = self.recvq,
-                                         cmdq   = self.cmdq,
-                                         txlock = self.__txlock,
-                                         sem    = self.__sem)
-
-        self.txthread = SendThread(self, cmdq   = self.cmdq,
-                                         txlock = self.__txlock,
-                                         sem    = self.__sem)
-
-        self.rxthread.daemon = True
-        self.rxthread.start()
-
-        self.txthread.daemon = True
-        self.txthread.start()
-
-    if DEBUG:
-        def read(self, size=1):
-            data = super(FreseniusComm, self).read(size)
-            self.logfile.write(data)
-            return data
-
-        def write(self, data):
-            self.logfile.write(data)
-            return super(FreseniusComm, self).write(data)
-
-    def __del__(self):
-        self.cmdq.join()
-
-    def execCommand(self, msg):
-        """
-        High-level access to send commands and read replies.
-        The reply is a tuple of (origin, message), where origin identifies the
-        device.
-        Mixing low-level and high-level commands can lead to race conditions.
-        """
-        self.cmdq.put(genFrame(msg))
-        self.cmdq.join()
-        return self.recvq.get()
-
-    def sendCommand(self, msg, block = False):
-        """
-        Low level sending of commands.
-        A maximum of 20 commands can be queued.
-        This function will return False when the queue is full, and block is
-        False. It will return True otherwise.
-        Mixing low-level and high-level commands can lead to race conditions.
-        """
-        try:
-            self.cmdq.put(genFrame(msg), block = block)
-            return True
-        except queue.Full:
-            return False
-
-    def recvOne(self, block = True):
-        """
-        Low-level reading of device replies.
-        The reply is a tuple of (origin, message), where origin identifies the
-        device.
-        If block is False and the queue is empty, None is returned.
-        Mixing low-level and high-level commands can lead to race conditions.
-        """
-        try:
-            m = self.recvq.get(block = block)
-            return m
-        except queue.Empty:
-            return None
-
-    def recvAll(self):
-        """
-        Low-level reading of device replies.
-        This function returns a list of all queued replies.
-        The replies are tuples of (origin, message), where origin identifies
-        the device.
-        You should not mix low-level and high-level access.
-        """
-        while not self.recvq.empty():
-            try:
-                m = self.recvq.get(block = False)
-                yield m
-            except queue.Empty:
-                break
-
-
-class RecvThread(threading.Thread):
-    def __init__(self, comm, recvq, cmdq, txlock, sem):
-        super(RecvThread, self).__init__()
-        self.__comm   = comm
-        self.__recvq  = recvq
-        self.__cmdq   = cmdq
-        self.__txlock = txlock
-        self.__sem    = sem
-        self.__buffer = b""
-
-    def sendKeepalive(self):
-        with self.__txlock:
-            self.__comm.write(DC4)
-
-    def sendACK(self):
-        with self.__txlock:
-            self.__comm.write(ACK)
-
-    def sendSpontReply(self, origin):
-        with self.__txlock:
-            self.__comm.write(genFrame(origin))
-
-    def extractMessage(self, rxbytes):
-        # The checksum is in the last two bytes
-        chk   = rxbytes[-2:]
-        rxbytes = rxbytes[:-2]
-        # Partition the string
-        splt   = rxbytes.split(b';', 1)
-        origin = splt[0]
-        if len(splt) > 1:
-            msg = splt[1]
-        else:
-            msg = None
-        return (origin, msg, chk == genCheckSum(rxbytes))
-
-    def allowNewCmd(self):
-        self.__cmdq.task_done()
-        self.__sem.release()
-
-    def enqueueRxBuffer(self):
-        origin, msg, check = self.extractMessage(self.__buffer)
-        self.__buffer = b""
-        self.sendACK()
-
-        if origin.endswith(b'I'):
-            # Error condition
-            if msg in ERRcmd:
-                errmsg = ERRcmd[msg]
-            else:
-                errmsg = "Unknown Error code {}".format(msg)
-            self.allowNewCmd()
-            self.__recvq.put((b'E' + origin, errmsg))
-            if DEBUG: print("Commmand error: {}".format(errmsg))
-
-        elif origin.endswith(b'E') or origin.endswith(b'M'):
-            # Spontaneously generated information. We need to acknowledge.
-            # Do not allowNewCmd() here.
-            self.sendSpontReply(origin)
-            self.__recvq.put((origin, msg))
-
-        else:
-            # This is a reply to one of our commands 
-            self.__recvq.put((origin, msg))
-            self.allowNewCmd()
-
-    def run(self):
-        # We need to read byte by byte because ENQ/DC4 line monitoring
-        # can happen any time and we need to reply quickly.
-        insideNAKerr = False
-        insideCommand = False
-        while True:
-            c = self.__comm.read(1)
-            if c == ENQ:
-                self.sendKeepalive()
-            elif insideNAKerr:
-                if c in ERRdata:
-                    errmsg = ERRdata[c]
-                else:
-                    errmsg = "Unknown Error code {}".format(c)
-                print("Protocol error: {}".format(errmsg))
-                self.__recvq.put((b'E', errmsg))
-                self.allowNewCmd()
-                insideNAKerr = False
-            elif c == ACK:
-                pass
-            elif c == STX:
-                # Start of command marker
-                insideCommand = True
-            elif c == ETX:
-                # End of command marker
-                insideCommand = False
-                self.enqueueRxBuffer()
-            elif c == NAK:
-                insideNAKerr = True
-            elif insideCommand:
-                self.__buffer += c
-            else:
-                if DEBUG: print("Unexpected char received: {}".format(c))
-
-
-class SendThread(threading.Thread):
-    def __init__(self, comm, cmdq, txlock, sem):
-        super(SendThread, self).__init__()
-        self.__comm   = comm
-        self.__cmdq   = cmdq
-        self.__txlock = txlock
-        self.__sem    = sem
-
-    def run(self):
-        while True:
-            msg = self.__cmdq.get()
-
-            self.__sem.acquire()
-            with self.__txlock:
-                self.__comm.write(msg)

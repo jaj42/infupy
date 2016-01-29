@@ -1,9 +1,16 @@
-class Syringe():
-    _callbacks = []
-    _comm = None
+class CommunicationError(Exception):
+    def __str__(self):
+        return "Communication error. Reason: {}".format(self.args)
 
-    def __init__(self, comm):
-        self._comm = comm
+class CommandError(Exception):
+    def __str__(self):
+        return "Command error. {}".format(self.args)
+
+class Syringe():
+    _events = set()
+
+    def __init__(self):
+        pass
 
     def execRawCommand(self, msg):
         """
@@ -13,10 +20,10 @@ class Syringe():
 
     # Read Perfusion related values
     def readRate(self):
-        pass
+        return 0
 
     def readVolume(self):
-        pass
+        return 0
 
     # Infusion control
     def setRate(self, rate):
@@ -27,7 +34,10 @@ class Syringe():
 
     # Events
     def registerEvent(self, event):
-        pass
+        self._events |= set([event])
 
-    def addCallback(self, func):
-        self.callbacks.append(func)
+    def unregisterEvent(self, event):
+        self._events -= set([event])
+
+    def clearEvents(self):
+        self._events = set()
