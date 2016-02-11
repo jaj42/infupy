@@ -7,7 +7,11 @@ setup(name         = 'infupy',
       author       = 'Jona Joachim',
       author_email = 'jona@joachim.cc',
       license      = 'ISC',
-      packages     = ['infupy', 'infupy.backends'],
+      packages     = ['infupy', 'infupy.backends', 'infupy.gui'],
       install_requires=[
-          'pyserial',
-      ])
+          'pyserial'
+      ],
+      scripts = [
+          'scripts/syringoreceuil.py'
+      ]
+)
