@@ -126,7 +126,10 @@ class FreseniusSyringe(Syringe):
         return self.execCommand(Command.connect)
 
     def disconnect(self):
-        return self.execCommand(Command.disconnect)
+        try:
+            self.execCommand(Command.disconnect)
+        except CommunicationError:
+            pass
 
     def readRate(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.rate])
@@ -173,7 +176,7 @@ class FreseniusSyringe(Syringe):
         super(FreseniusSyringe, self).clearEvents()
         reply = self.execCommand(Command.disspont)
         if reply.error:
-            raise CommandError(result.value)
+            raise CommandError(reply.value)
 
 class FreseniusBase(FreseniusSyringe):
     def __init__(self, comm):
