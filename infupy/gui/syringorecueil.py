@@ -45,11 +45,10 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
     def disconnect(self):
         self.syringes = []
         self.base = None
-        time.sleep(1)
-        self.file.close()
         self.conn.close()
         self.conn = None
-        self.statusBar.setStyleSheet("QStatusBar{background:None;}") 
+        self.file.close()
+        self.statusBar.setStyleSheet("QStatusBar{background : None;}")
         self.statusBar.showMessage('Déconnecté')
 
     def updatelist(self):
@@ -75,7 +74,6 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
             s = fresenius.FreseniusSyringe(self.conn, modid)
             s.addCallback(logValues)
             self.syringes.append(s)
-            #drugname = s.readDrug()
             liststr = "Seringue {}".format(modid)
             self.lstSyringes.addItem(liststr)
 
