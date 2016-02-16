@@ -1,5 +1,4 @@
-from PyQt4 import QtGui
-from PyQt4.QtCore import Qt
+from PyQt4 import QtCore, QtGui
 
 import infupy.backends.fresenius as fresenius
 import infupy.gui.syringorecueil as syringorecueil 
@@ -7,9 +6,42 @@ from infupy.gui.syringorecueil_ui import Ui_wndMain
 
 import sys, time, csv
 
+#self.__qthread = QtCore.QThread()
+#self.__rpc.moveToThread(self.__qthread)
+
+class DeviceWorker():
+    sigConnected      = QtCore.pyqtSignal() # XXX should open new file
+    sigDisconnected   = QtCore.pyqtSignal() # XXX should close file
+    sigUpdateSyringes = QtCore.pyqtSignal(list)
+
+    def __init__(self):
+        self.conn = None
+        self.base = None
+        self.syringes = []
+
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.loop)
+
+    def start(self):
+        self.timer.start(5000)
+
+    def stop(self):
+        self.timer.stop()
+
+    def loop(self, device):
+        if self.base is None:
+            try:
+                self.base = fresenius.FreseniusBase(self.conn)
+            except:
+                self.sigDisconnected.emit()
+                return
+            else:
+                self.sigConnected.emit()
+
+
 class MainUi(QtGui.QMainWindow, Ui_wndMain):
-    def __init__(self, parent=None):
-        super(MainUi, self).__init__(parent=parent)
+    def __init__(self, parent = None):
+        super(MainUi, self).__init__(parent = parent)
         self.setupUi(self)
 
         self.conn = None
@@ -50,7 +82,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         self.file.close()
         self.conn.close()
         self.conn = None
-        self.statusBar.setStyleSheet("QStatusBar{background:None;}") 
+        self.statusBar.setStyleSheet("QStatusBar{background : None;}") 
         self.statusBar.showMessage('Déconnecté')
 
     def updatelist(self):
@@ -58,11 +90,13 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
             try:
                 volume = fresenius.extractVolume(msg)
             except ValueError:
-                volume = 0
+                return
+
             if origin is not None and origin.isdigit():
                 syringe = int(origin)
             else:
-                syringe = 0
+                return
+
             print("{}:{}".format(syringe, volume))
             self.csv.writerow({'time'    : time.time(),
                                'syringe' : syringe,
