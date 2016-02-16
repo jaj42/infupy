@@ -1,10 +1,11 @@
 from PyQt4 import QtGui
 from PyQt4.QtCore import Qt
 
-from infupy.gui.syringorecueil_ui import Ui_wndMain
 import infupy.backends.fresenius as fresenius
+import infupy.gui.syringorecueil as syringorecueil 
+from infupy.gui.syringorecueil_ui import Ui_wndMain
 
-import time,csv
+import sys, time, csv
 
 class MainUi(QtGui.QMainWindow, Ui_wndMain):
     def __init__(self, parent=None):
@@ -45,10 +46,11 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
     def disconnect(self):
         self.syringes = []
         self.base = None
+        time.sleep(1)
+        self.file.close()
         self.conn.close()
         self.conn = None
-        self.file.close()
-        self.statusBar.setStyleSheet("QStatusBar{background : None;}")
+        self.statusBar.setStyleSheet("QStatusBar{background:None;}") 
         self.statusBar.showMessage('Déconnecté')
 
     def updatelist(self):
@@ -74,6 +76,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
             s = fresenius.FreseniusSyringe(self.conn, modid)
             s.addCallback(logValues)
             self.syringes.append(s)
+            #drugname = s.readDrug()
             liststr = "Seringue {}".format(modid)
             self.lstSyringes.addItem(liststr)
 
@@ -84,3 +87,11 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
     def stop(self):
         for s in self.syringes:
             s.clearEvents()
+
+
+qApp = QtGui.QApplication(sys.argv)
+
+wMain = syringorecueil.MainUi()
+wMain.show()
+
+sys.exit(qApp.exec_())
