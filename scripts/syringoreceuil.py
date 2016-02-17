@@ -1,3 +1,5 @@
+# vim: set fileencoding=utf-8 :
+
 from PyQt4 import QtCore, QtGui
 
 import infupy.backends.fresenius as fresenius
@@ -6,10 +8,7 @@ from infupy.gui.syringorecueil_ui import Ui_wndMain
 
 import sys, time, csv
 
-#self.__qthread = QtCore.QThread()
-#self.__rpc.moveToThread(self.__qthread)
-
-class DeviceWorker():
+class DeviceWorker(QtCore.QObject):
     sigConnected      = QtCore.pyqtSignal() # XXX should open new file
     sigDisconnected   = QtCore.pyqtSignal() # XXX should close file
     sigUpdateSyringes = QtCore.pyqtSignal(list)
@@ -29,6 +28,8 @@ class DeviceWorker():
         self.timer.stop()
 
     def loop(self, device):
+        print("loop")
+        return
         if self.base is None:
             try:
                 self.base = fresenius.FreseniusBase(self.conn)
@@ -56,6 +57,11 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         self.btnStart.clicked.connect(self.start)
         self.btnStop.clicked.connect(self.stop)
         self.btnSUpdate.clicked.connect(self.updatelist)
+
+        self.__workerthread = QtCore.QThread()
+        self.__worker = DeviceWorker()
+        self.__rpc.moveToThread(self.__workerthread)
+        self.__worker.start()
 
     def connect(self):
         port = self.comboCom.currentText()
