@@ -84,9 +84,9 @@ class FreseniusSyringe(Syringe):
     def __init__(self, comm, index = ''):
         super(FreseniusSyringe, self).__init__()
         self.__comm  = comm
-        self.__index = str(index).encode('ASCII')
+        self.index = index
         self.connect()
-        self.__comm.callbacks[self.__index] = []
+        self.__comm.callbacks[self.index] = []
 
     def __del__(self):
         self.disconnect()
@@ -96,7 +96,7 @@ class FreseniusSyringe(Syringe):
             self.__comm.recvq.put(Reply(error = True, value = "Timeout"))
             self.__comm.cmdq.task_done()
         
-        cmd = genFrame(self.__index + msg)
+        cmd = genFrame(str(self.index).encode('ASCII') + msg)
         self.__comm.cmdq.put(cmd)
 
         # Time out after 2 seconds in case of communication failure.
@@ -155,7 +155,7 @@ class FreseniusSyringe(Syringe):
             raise CommandError(result.value)
 
     def addCallback(self, func):
-        self.__comm.callbacks[self.__index].append(func)
+        self.__comm.callbacks[self.index].append(func)
 
     def registerEvent(self, event):
         super(FreseniusSyringe, self).registerEvent(event)
