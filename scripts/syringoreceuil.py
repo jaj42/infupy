@@ -35,57 +35,76 @@ class DeviceWorker(QtCore.QObject):
         self.timer.stop()
 
     def loop(self):
-        if self.conn is None:
+        if not self.checkCOMPort():
+            if not self.tryCOMPort(): return
+        if not self.checkBase():
+            if not self.tryConnectBase(): return
+        self.checkSyringes()
+        self.findNewSyringes()
+
+    def checkCOMPort(self):
+        try:
+            self.conn.name
+        except Exception as e:
+            print("Serial port exception: {}".format(e))
+            self.conn = None
+            return False
+        else:
+            return True
+
+    def tryCOMPort(self):
+        try:
+            self.conn = fresenius.FreseniusComm(self.port)
+        except Exception as e:
+            self.onDisconnected()
+            print("Failed to open COM port: {}".format(e))
+            return False
+        else:
+            return True
+
+    def checkBase(self):
+        try:
+            self.base.readDeviceType()
+        except Exception as e:
+            print("Base exception: {}".format(e))
+            self.base = None
+            return False
+        else:
+            return True
+
+    def tryConnectBase(self):
+        try:
+            self.base = fresenius.FreseniusBase(self.conn)
+        except Exception as e:
+            self.onDisconnected()
+            print("Failed to connect to base: {}".format(e))
+            return False
+        else:
+            sleep(1)
+            self.onConnected()
+            return True
+
+    def checkSyringes(self):
+        for i, s in self.syringes.iteritems():
             try:
-                self.conn = fresenius.FreseniusComm(self.port)
-            except:
-                self.conn = None
-                self.onDisconnected()
-                return
-        if self.base is None:
-            try:
-                self.base = fresenius.FreseniusBase(self.conn)
-                sleep(1)
-            except:
-                self.onDisconnected()
-                self.base = None
-                self.sigError.emit("Failed to connect to base")
-                return
+                s.readDeviceType()
+            except Exception as e:
+                self.reportError("Lost syringe {}".format(i))
+                del self.syringes[i]
             else:
-                self.onConnected()
-        if self.base is not None:
-            self.connectSyringes()
+                # Register the event in case the syringe got reset.
+                # If the event was already registered, this is a no-op.
+                s.registerEvent(fresenius.VarId.volume)
 
-    def onConnected(self):
-        self.sigConnected.emit()
-        self.newFile()
-
-    def onDisconnected(self):
-        self.sigDisconnected.emit()
-        if self.csvfd is not None:
-            self.csvfd.close()
-
-    def connectSyringes(self):
+    def findNewSyringes(self):
         modids = self.base.listModules()
         self.sigUpdateSyringes.emit(modids)
         for modid in modids:
-            if modid in self.syringes.keys():
-                s = self.syringes[modid]
-                try:
-                    s.readDeviceType()
-                except fresenius.CommandError:
-                    s.connect()
-                except fresenius.CommunicationError:
-                    self.sigError.emit("Lost syringe {}".format(modid))
-                    del self.syringes[modid]
-                    continue
-            else:
+            if not modid in self.syringes.keys():
                 s = fresenius.FreseniusSyringe(self.conn, modid)
                 s.addCallback(self.cbLogValues)
+                s.registerEvent(fresenius.VarId.volume)
                 self.syringes[modid] = s
-            # Always register the event in case the syringe got reset.
-            # If the event was already registered, this is a no-op.
-            s.registerEvent(fresenius.VarId.volume)
 
     def newFile(self):
         if self.csvfd is not None:
@@ -99,15 +118,26 @@ class DeviceWorker(QtCore.QObject):
         try:
             volume = fresenius.extractVolume(msg)
         except ValueError:
-            return
-
-        if origin is None:
+            self.reportError("Failed to decode volume value")
             return
 
         print("{}:{}".format(origin, volume))
         self.csv.writerow({'time'    : time.time(),
                            'syringe' : origin,
                            'volume'  : volume})
+
+    def onConnected(self):
+        self.sigConnected.emit()
+        self.newFile()
+
+    def onDisconnected(self):
+        self.sigDisconnected.emit()
+        if self.csvfd is not None:
+            self.csvfd.close()
+            self.csvfd = None
+
+    def reportError(self, err):
+        self.sigError.emit(str(err))
 
 
 class MainUi(QtGui.QMainWindow, Ui_wndMain):
