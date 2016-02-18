@@ -66,15 +66,16 @@ class DeviceWorker(QtCore.QObject):
         modids = self.base.listModules()
         self.sigUpdateSyringes.emit(modids)
         for modid in modids:
-            if modid in syringes.keys():
-                s = syringes[modid]
+            if modid in self.syringes.keys():
+                s = self.syringes[modid]
                 try:
-                    s.readDeviceType()
+                    res = s.readDeviceType()
+                    print(res)
                 except fresenius.CommandError:
                     s.connect()
                 except fresenius.CommunicationError:
                     self.sigError.emit("Lost syringe {}".format(modid))
-                    syringes.remove(modid)
+                    del self.syringes[modid]
                     continue
             else:
                 s = fresenius.FreseniusSyringe(self.conn, modid)
@@ -142,7 +143,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
     def disconnected(self):
         self.lstSyringes.clear()
         self.statusBar.setStyleSheet("QStatusBar{background : red;}")
-        self.statusBar.showMessage("DÃ©connectÃ©")
+        self.statusBar.showMessage("DÃÂÃÂ©connectÃÂÃÂ©")
 
     def updateSyringeList(self, slist):
         self.lstSyringes.clear()
