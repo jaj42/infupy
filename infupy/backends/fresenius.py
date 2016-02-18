@@ -154,6 +154,13 @@ class FreseniusSyringe(Syringe):
         if reply.error:
             raise CommandError(result.value)
 
+    def readDeviceType(self):
+        reply = self.execCommand(Command.readfixed, flags=[FixedVarId.devicetype ])
+        if reply.error:
+            raise CommandError(result.value)
+        return reply.value
+
+    # Spontaneous variable handling
     def addCallback(self, func):
         self.__comm.callbacks[self.index].append(func)
 
@@ -408,6 +415,9 @@ class VarId(Enum):
     bolvol  = b's'
     nummods = b'i'
     modules = b'b'
+
+class FixedVarId(Enum):
+    devicetype = b'b'
 
 class ReplyStatus(Enum):
     correct   = b'C'
