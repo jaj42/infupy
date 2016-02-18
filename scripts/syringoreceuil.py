@@ -97,14 +97,12 @@ class DeviceWorker(QtCore.QObject):
         except ValueError:
             return
 
-        if origin is not None and origin.isdigit():
-            syringe = int(origin)
-        else:
+        if origin is None:
             return
 
         print("{}:{}".format(syringe, volume))
         self.csv.writerow({'time'    : time.time(),
-                           'syringe' : syringe,
+                           'syringe' : origin,
                            'volume'  : volume})
 
 
@@ -141,7 +139,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
     def disconnected(self):
         self.lstSyringes.clear()
         self.statusBar.setStyleSheet("QStatusBar{background : red;}")
-        self.statusBar.showMessage("Déconnecté")
+        self.statusBar.showMessage("Deconnecte")
 
     def updateSyringeList(self, slist):
         self.lstSyringes.clear()
