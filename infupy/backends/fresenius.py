@@ -6,7 +6,7 @@ from enum import Enum
 
 from infupy.backends.common import *
 
-DEBUG = False
+DEBUG = True
 
 def genCheckSum(msg):
     asciisum = sum(msg)
@@ -83,10 +83,13 @@ def extractVolume(msg):
 class FreseniusSyringe(Syringe):
     def __init__(self, comm, index):
         super(FreseniusSyringe, self).__init__()
-        self.__comm  = comm
-        self.index = index
+        self.__comm = comm
+        if isinstance(index, bytes):
+            self.__index = index
+        else:
+            self.__index = str(index).encode('ASCII')
         self.connect()
-        self.__comm.callbacks[self.index] = []
+        self.__comm.callbacks[self.__index] = []
 
     def __del__(self):
         self.disconnect()
@@ -96,11 +99,11 @@ class FreseniusSyringe(Syringe):
             self.__comm.recvq.put(Reply(error = True, value = "Timeout"))
             self.__comm.cmdq.task_done()
         
-        cmd = genFrame(str(self.index).encode('ASCII') + msg)
+        cmd = genFrame(self.__index + msg)
         self.__comm.cmdq.put(cmd)
 
-        # Time out after 2 seconds in case of communication failure.
-        t = threading.Timer(2, qTimeout)
+        # Time out after 1 second in case of communication failure.
+        t = threading.Timer(1, qTimeout)
         t.start()
         self.__comm.cmdq.join()
         t.cancel()
@@ -162,7 +165,7 @@ class FreseniusSyringe(Syringe):
 
     # Spontaneous variable handling
     def addCallback(self, func):
-        self.__comm.callbacks[self.index].append(func)
+        self.__comm.callbacks[self.__index].append(func)
 
     def registerEvent(self, event):
         super(FreseniusSyringe, self).registerEvent(event)
@@ -184,6 +187,11 @@ class FreseniusSyringe(Syringe):
         reply = self.execCommand(Command.disspont)
         if reply.error:
             raise CommandError(reply.value)
+
+    @property
+    def index(self):
+        return int(self.__index)
+
 
 class FreseniusBase(FreseniusSyringe):
     def __init__(self, comm):
@@ -270,7 +278,10 @@ class RecvThread(threading.Thread):
             self.__comm.write(genFrame(origin + status.value))
 
     def allowNewCmd(self):
-        self.__cmdq.task_done()
+        try:
+            self.__cmdq.task_done()
+        except ValueError as e:
+            if DEBUG: print("State machine got confused: " + str(e))
 
     def enqueueRxBuffer(self):
         status, origin, msg, check = parseReply(self.__buffer)
@@ -372,8 +383,11 @@ DC4 = b'\x14'
 
 class Reply(object):
     __slots__ = ('origin', 'value', 'error')
-    def __init__(self, origin = None, value = None, error = False):
-        self.origin = origin
+    def __init__(self, origin = None, value = '', error = False):
+        if origin is None:
+            self.origin = 0
+        else:
+            self.origin = int(origin)
         self.value  = value
         self.error  = error
 
