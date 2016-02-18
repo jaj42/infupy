@@ -46,7 +46,7 @@ class DeviceWorker(QtCore.QObject):
         try:
             self.conn.name
         except Exception as e:
-            print("Serial port exception: {}".format(e))
+            self.reportError("Serial port exception: {}".format(e))
             self.conn = None
             return False
         else:
@@ -57,7 +57,7 @@ class DeviceWorker(QtCore.QObject):
             self.conn = fresenius.FreseniusComm(self.port)
         except Exception as e:
             self.onDisconnected()
-            print("Failed to open COM port: {}".format(e))
+            self.reportError("Failed to open COM port: {}".format(e))
             return False
         else:
             return True
@@ -66,8 +66,9 @@ class DeviceWorker(QtCore.QObject):
         try:
             self.base.readDeviceType()
         except Exception as e:
-            print("Base exception: {}".format(e))
             self.base = None
+            self.onDisconnected()
+            self.reportError("Lost base: {}".format(e))
             return False
         else:
             return True
@@ -76,8 +77,7 @@ class DeviceWorker(QtCore.QObject):
         try:
             self.base = fresenius.FreseniusBase(self.conn)
         except Exception as e:
-            self.onDisconnected()
-            print("Failed to connect to base: {}".format(e))
+            #self.reportError("Failed to connect to base: {}".format(e))
             return False
         else:
             sleep(1)
@@ -137,6 +137,7 @@ class DeviceWorker(QtCore.QObject):
             self.csvfd = None
 
     def reportError(self, err):
+        print(err)
         self.sigError.emit(str(err))
 
 
@@ -163,17 +164,17 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
 
 
     def showStatusError(self, errstr):
-        self.statusBar.setStyleSheet("QStatusBar{background : orange;}")
-        self.statusBar.showMessage("Erreur: {}".format(errstr))
+        # Show for 2 seconds
+        self.statusBar.showMessage("Error: {}".format(errstr), 2000)
 
     def connected(self):
         self.statusBar.setStyleSheet("QStatusBar{background : green;}")
-        self.statusBar.showMessage("Connexion ok")
+        self.statusBar.showMessage("Connection ok")
 
     def disconnected(self):
         self.lstSyringes.clear()
         self.statusBar.setStyleSheet("QStatusBar{background : red;}")
-        self.statusBar.showMessage("Deconnecte")
+        self.statusBar.showMessage("Disconnected")
 
     def updateSyringeList(self, slist):
         self.lstSyringes.clear()
