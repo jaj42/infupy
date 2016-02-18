@@ -48,6 +48,7 @@ class DeviceWorker(QtCore.QObject):
             except:
                 self.onDisconnected()
                 self.sigError.emit("Failed to connect to base")
+                return
             else:
                 self.onConnected()
         self.connectSyringes()
