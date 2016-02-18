@@ -45,13 +45,16 @@ class DeviceWorker(QtCore.QObject):
         if self.base is None:
             try:
                 self.base = fresenius.FreseniusBase(self.conn)
+                sleep(1)
             except:
                 self.onDisconnected()
+                self.base = None
                 self.sigError.emit("Failed to connect to base")
                 return
             else:
                 self.onConnected()
-        self.connectSyringes()
+        if self.base is not None:
+            self.connectSyringes()
 
     def onConnected(self):
         self.sigConnected.emit()
