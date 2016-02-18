@@ -42,7 +42,6 @@ class DeviceWorker(QtCore.QObject):
                 self.conn = None
                 self.onDisconnected()
                 return
-
         if self.base is None:
             try:
                 self.base = fresenius.FreseniusBase(self.conn)
@@ -51,11 +50,11 @@ class DeviceWorker(QtCore.QObject):
                 self.sigError.emit("Failed to connect to base")
             else:
                 self.onConnected()
+        self.connectSyringes()
 
     def onConnected(self):
         self.sigConnected.emit()
         self.newFile()
-        self.connectSyringes()
 
     def onDisconnected(self):
         self.sigDisconnected.emit()
@@ -69,8 +68,7 @@ class DeviceWorker(QtCore.QObject):
             if modid in self.syringes.keys():
                 s = self.syringes[modid]
                 try:
-                    res = s.readDeviceType()
-                    print(res)
+                    s.readDeviceType()
                 except fresenius.CommandError:
                     s.connect()
                 except fresenius.CommunicationError:
@@ -93,8 +91,7 @@ class DeviceWorker(QtCore.QObject):
         self.csv = csv.DictWriter(self.csvfd, fieldnames = ['time', 'syringe', 'volume'])
         self.csv.writeheader()
 
-    def cbLogValues(origin, msg):
-        print("cblog -{}- -{}-".format(origin, msg))
+    def cbLogValues(self, origin, msg):
         try:
             volume = fresenius.extractVolume(msg)
         except ValueError:
@@ -144,7 +141,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
     def disconnected(self):
         self.lstSyringes.clear()
         self.statusBar.setStyleSheet("QStatusBar{background : red;}")
-        self.statusBar.showMessage("DÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ©connectÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ©")
+        self.statusBar.showMessage("Déconnecté")
 
     def updateSyringeList(self, slist):
         self.lstSyringes.clear()

@@ -81,7 +81,7 @@ def extractVolume(msg):
     return (10**-3 * n)
 
 class FreseniusSyringe(Syringe):
-    def __init__(self, comm, index = ''):
+    def __init__(self, comm, index):
         super(FreseniusSyringe, self).__init__()
         self.__comm  = comm
         self.index = index
@@ -295,9 +295,12 @@ class RecvThread(threading.Thread):
         elif status is ReplyStatus.spont or status is ReplyStatus.spontadj:
             # Spontaneously generated information. We need to acknowledge.
             self.sendSpontReply(origin, status)
-            if origin in self.__comm.callbacks:
-                for func in self.__comm.callbacks[origin]:
-                    func(origin, msg)
+            if origin is None or not origin.isdigit():
+                return
+            iorigin = int(origin)
+            if iorigin in self.__comm.callbacks:
+                for func in self.__comm.callbacks[iorigin]:
+                    func(iorigin, msg)
 
         else:
             pass
