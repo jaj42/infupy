@@ -62,6 +62,9 @@ class DeviceWorker(QtCore.QObject):
             self.csvfd.close()
 
     def connectSyringes(self):
+        # XXX check already connected syringes
+        #     deviceType.
+        #     syringes to dictionary with index.
         modids = self.base.listModules()
         self.sigUpdateSyringes.emit(modids)
         for modid in modids:
@@ -122,7 +125,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
     def disconnected(self):
         self.lstSyringes.clear()
         self.statusBar.setStyleSheet("QStatusBar{background : red;}")
-        self.statusBar.showMessage('Deconnecte')
+        self.statusBar.showMessage('Déconnecté')
 
     def updateSyringeList(slist):
         self.lstSyringes.clear()
