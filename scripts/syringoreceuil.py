@@ -11,6 +11,7 @@ class DeviceWorker(QtCore.QObject):
     sigConnected      = QtCore.pyqtSignal()
     sigDisconnected   = QtCore.pyqtSignal()
     sigUpdateSyringes = QtCore.pyqtSignal(list)
+    sigError          = QtCore.pyqtSignal(str)
 
     def __init__(self):
         super(DeviceWorker, self).__init__()
@@ -19,7 +20,7 @@ class DeviceWorker(QtCore.QObject):
         self.base = None
         self.csvfd = None
         self.csv = None
-        self.syringes = []
+        self.syringes = dict()
 
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.loop)
@@ -36,7 +37,6 @@ class DeviceWorker(QtCore.QObject):
     def loop(self):
         if self.conn is None:
             try:
-                print("Trying to connect to " + self.port)
                 self.conn = fresenius.FreseniusComm(self.port)
             except:
                 self.conn = None
@@ -48,6 +48,7 @@ class DeviceWorker(QtCore.QObject):
                 self.base = fresenius.FreseniusBase(self.conn)
             except:
                 self.onDisconnected()
+                self.sigError.emit("Failed to connect to base")
             else:
                 self.onConnected()
 
@@ -62,23 +63,33 @@ class DeviceWorker(QtCore.QObject):
             self.csvfd.close()
 
     def connectSyringes(self):
-        # XXX check already connected syringes
-        #     deviceType.
-        #     syringes to dictionary with index.
         modids = self.base.listModules()
         self.sigUpdateSyringes.emit(modids)
         for modid in modids:
-            s = fresenius.FreseniusSyringe(self.conn, modid)
-            s.addCallback(self.cbLogValues)
+            if modid in syringes.keys():
+                s = syringes[modid]
+                try:
+                    s.readDeviceType()
+                except fresenius.CommandError:
+                    s.connect()
+                except fresenius.CommunicationError:
+                    self.sigError.emit("Lost syringe {}".format(modid))
+                    syringes.remove(modid)
+                    continue
+            else:
+                s = fresenius.FreseniusSyringe(self.conn, modid)
+                s.addCallback(self.cbLogValues)
+                self.syringes[modid] = s
+            # Always register the event in case the syringe got reset.
+            # If the event was already registered, this is a no-op.
             s.registerEvent(fresenius.VarId.volume)
-            self.syringes.append(s)
 
     def newFile(self):
         if self.csvfd is not None:
             self.csvfd.close()
         filename = time.strftime('%Y%m%d-%H%M.csv')
         self.csvfd = open(filename, 'w', newline='')
-        self.csv = csv.DictWriter(self.file, fieldnames = ['time', 'syringe', 'volume'])
+        self.csv = csv.DictWriter(self.csvfd, fieldnames = ['time', 'syringe', 'volume'])
         self.csv.writeheader()
 
     def cbLogValues(origin, msg):
@@ -92,7 +103,7 @@ class DeviceWorker(QtCore.QObject):
         else:
             return
 
-        print("{}:{}".format(syringe, volume))
+        #print("{}:{}".format(syringe, volume))
         self.csv.writerow({'time'    : time.time(),
                            'syringe' : syringe,
                            'volume'  : volume})
@@ -114,20 +125,26 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         self.__worker.sigConnected.connect(self.connected)
         self.__worker.sigDisconnected.connect(self.disconnected)
         self.__worker.sigUpdateSyringes.connect(self.updateSyringeList)
+        self.__worker.sigError.connect(self.showStatusError)
 
         self.__worker.moveToThread(self.__workerthread)
         self.__worker.start()
 
+
+    def showStatusError(self, errstr):
+        self.statusBar.setStyleSheet("QStatusBar{background : orange;}")
+        self.statusBar.showMessage("Erreur: {}".format(errstr))
+
     def connected(self):
         self.statusBar.setStyleSheet("QStatusBar{background : green;}")
-        self.statusBar.showMessage('Connexion ok')
+        self.statusBar.showMessage("Connexion ok")
 
     def disconnected(self):
         self.lstSyringes.clear()
         self.statusBar.setStyleSheet("QStatusBar{background : red;}")
-        self.statusBar.showMessage('Déconnecté')
+        self.statusBar.showMessage("DÃ©connectÃ©")
 
-    def updateSyringeList(slist):
+    def updateSyringeList(self, slist):
         self.lstSyringes.clear()
         for modid in slist:
             liststr = "Seringue {}".format(modid)
