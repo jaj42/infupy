@@ -101,7 +101,7 @@ class DeviceWorker(QtCore.QObject):
         if origin is None:
             return
 
-        print("{}:{}".format(syringe, volume))
+        print("{}:{}".format(origin, volume))
         self.csv.writerow({'time'    : time.time(),
                            'syringe' : origin,
                            'volume'  : volume})
