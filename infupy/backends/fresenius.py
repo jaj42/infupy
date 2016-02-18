@@ -155,7 +155,7 @@ class FreseniusSyringe(Syringe):
             raise CommandError(result.value)
 
     def readDeviceType(self):
-        reply = self.execCommand(Command.readfixed, flags=[FixedVarId.devicetype ])
+        reply = self.execCommand(Command.readfixed, flags=[FixedVarId.devicetype])
         if reply.error:
             raise CommandError(result.value)
         return reply.value
@@ -196,7 +196,7 @@ class FreseniusBase(FreseniusSyringe):
         modules = []
         reply = self.execCommand(Command.readvar, flags=[VarId.modules])
         if reply.error:
-            raise CommandError(result.value)
+            raise CommandError(reply.value)
         results = parseVars(reply.value)
         binmods = int(results[VarId.modules], 16)
         for i in range(5):
