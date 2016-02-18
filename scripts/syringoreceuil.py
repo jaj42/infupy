@@ -94,6 +94,7 @@ class DeviceWorker(QtCore.QObject):
         self.csv.writeheader()
 
     def cbLogValues(origin, msg):
+        print("cblog -{}- -{}-".format(origin, msg))
         try:
             volume = fresenius.extractVolume(msg)
         except ValueError:
@@ -104,7 +105,7 @@ class DeviceWorker(QtCore.QObject):
         else:
             return
 
-        #print("{}:{}".format(syringe, volume))
+        print("{}:{}".format(syringe, volume))
         self.csv.writerow({'time'    : time.time(),
                            'syringe' : syringe,
                            'volume'  : volume})
@@ -143,7 +144,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
     def disconnected(self):
         self.lstSyringes.clear()
         self.statusBar.setStyleSheet("QStatusBar{background : red;}")
-        self.statusBar.showMessage("DÃÂÃÂ©connectÃÂÃÂ©")
+        self.statusBar.showMessage("DÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ©connectÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ©")
 
     def updateSyringeList(self, slist):
         self.lstSyringes.clear()
