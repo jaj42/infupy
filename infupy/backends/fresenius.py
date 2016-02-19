@@ -1,6 +1,7 @@
 import serial
 import threading
 import queue
+import time
 
 from enum import Enum
 
@@ -194,8 +195,10 @@ class FreseniusSyringe(Syringe):
 
 
 class FreseniusBase(FreseniusSyringe):
-    def __init__(self, comm):
+    def __init__(self, comm, wait = True):
         super(FreseniusBase, self).__init__(comm, 0)
+        if wait:
+            time.sleep(1)
 
     def __del__(self):
         self.disconnect()
