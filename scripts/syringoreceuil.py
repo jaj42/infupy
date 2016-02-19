@@ -146,6 +146,11 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         super(MainUi, self).__init__(parent = parent)
         self.setupUi(self)
 
+        # Add Connection label to statusbar
+        self.connStatusLabel = QtGui.QLabel()
+        self.connStatusLabel.setMargin(2)
+        self.statusBar.addPermanentWidget(self.connStatusLabel)
+
         # Init worker
         self.__workerthread = QtCore.QThread()
         self.__worker = DeviceWorker()
@@ -168,13 +173,13 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         self.statusBar.showMessage("Error: {}".format(errstr), 2000)
 
     def connected(self):
-        self.statusBar.setStyleSheet("QStatusBar{background : green;}")
-        self.statusBar.showMessage("Connection ok")
+        self.connStatusLabel.setStyleSheet("QLabel{background : green;}")
+        self.connStatusLabel.setText("Connected")
 
     def disconnected(self):
         self.lstSyringes.clear()
-        self.statusBar.setStyleSheet("QStatusBar{background : red;}")
-        self.statusBar.showMessage("Disconnected")
+        self.connStatusLabel.setStyleSheet("QLabel{background : red;}")
+        self.connStatusLabel.setText("Disconnected")
 
     def updateSyringeList(self, slist):
         self.lstSyringes.clear()
