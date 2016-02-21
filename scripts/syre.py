@@ -57,7 +57,7 @@ class LogWorker(QtCore.QObject):
                 try:
                     volume = fresenius.extractVolume(msg)
                 except ValueError:
-                    self.reportError("Failed to decode volume value")
+                    print("Failed to decode volume value")
                     continue
 
                 print("{}:{}".format(origin, volume))
@@ -169,7 +169,10 @@ class DeviceWorker(QtCore.QObject):
 
     def onDisconnected(self):
         self.sigDisconnected.emit()
-        self.logger.stop()
+        try:
+            self.logger.stop()
+        except AttributeError:
+            pass
 
     def reportError(self, err):
         print(err)
