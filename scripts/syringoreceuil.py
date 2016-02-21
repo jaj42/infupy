@@ -5,7 +5,66 @@ from PyQt4 import QtCore, QtGui
 import infupy.backends.fresenius as fresenius
 from infupy.gui.syringorecueil_ui import Ui_wndMain
 
-import sys, time, csv
+import sys, time, csv, io, threading
+
+# In addition to the GUI, two threads are running.
+# - A device connection thread, checking the connection to the base and
+#   the syringes every 5 seconds.
+# - A logger thread, reading the event queue every 1 second and logging
+#   perfused volumes to the csv file.
+
+class LogWorker(QtCore.QObject):
+    def __init__(self, eventq):
+        self.eventq = eventq
+        self.flock = threading.Lock()
+        self.csvfd = io.IOBase() # ensure close() method is present.
+        self.csv = None
+
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.loop)
+
+    def __del__(self):
+        self.stop()
+
+    def start(self):
+        with flock:
+            filename = time.strftime('%Y%m%d-%H%M.csv')
+            self.csvfd = open(filename, 'w', newline='')
+            self.csv = csv.DictWriter(self.csvfd, fieldnames = ['datetime', 'syringe', 'volume'])
+            self.csv.writeheader()
+        self.timer.start(1000) # 1 seconds
+
+    def stop(self):
+        self.timer.stop()
+        self.loop() # Run once more to empty queue.
+        with self.flock:
+            self.csvfd.close()
+
+    def loop(self):
+        try: # Ensure file is open and writable.
+            if not self.csvfd.writable():
+                raise IOError
+        except IOError:
+            return
+
+        with self.flock:
+            while True:
+                try:
+                    timestamp, origin, msg = self.eventq.get_nowait()
+                except queue.Empty:
+                    break
+
+                try:
+                    volume = fresenius.extractVolume(msg)
+                except ValueError:
+                    self.reportError("Failed to decode volume value")
+                    continue
+
+                print("{}:{}".format(origin, volume))
+                self.csv.writerow({'datetime' : timestamp,
+                                   'syringe'  : origin,
+                                   'volume'   : volume})
+
 
 class DeviceWorker(QtCore.QObject):
     sigConnected      = QtCore.pyqtSignal()
@@ -18,21 +77,20 @@ class DeviceWorker(QtCore.QObject):
         self.port = ""
         self.conn = None
         self.base = None
-        self.csvfd = None
-        self.csv = None
+        self.logger = None
         self.syringes = dict()
 
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.loop)
-
-    def setport(self, port):
-        self.port = port
 
     def start(self):
         self.timer.start(5000) # 5 seconds
 
     def stop(self):
         self.timer.stop()
+
+    def setport(self, port):
+        self.port = port
 
     def loop(self):
         if not self.checkCOMPort():
@@ -77,7 +135,7 @@ class DeviceWorker(QtCore.QObject):
         try:
             self.base = fresenius.FreseniusBase(self.conn)
         except Exception as e:
-            #self.reportError("Failed to connect to base: {}".format(e))
+            self.reportError("Failed to connect to base: {}".format(e))
             return False
         else:
             sleep(1)
@@ -102,39 +160,16 @@ class DeviceWorker(QtCore.QObject):
         for modid in modids:
             if not modid in self.syringes.keys():
                 s = fresenius.FreseniusSyringe(self.conn, modid)
-                s.addCallback(self.cbLogValues)
                 s.registerEvent(fresenius.VarId.volume)
                 self.syringes[modid] = s
 
-    def newFile(self):
-        if self.csvfd is not None:
-            self.csvfd.close()
-        filename = time.strftime('%Y%m%d-%H%M.csv')
-        self.csvfd = open(filename, 'w', newline='')
-        self.csv = csv.DictWriter(self.csvfd, fieldnames = ['time', 'syringe', 'volume'])
-        self.csv.writeheader()
-
-    def cbLogValues(self, origin, msg):
-        try:
-            volume = fresenius.extractVolume(msg)
-        except ValueError:
-            self.reportError("Failed to decode volume value")
-            return
-
-        print("{}:{}".format(origin, volume))
-        self.csv.writerow({'time'    : time.time(),
-                           'syringe' : origin,
-                           'volume'  : volume})
-
     def onConnected(self):
         self.sigConnected.emit()
-        self.newFile()
+        self.logger = LogWorker(self.conn.eventq)
 
     def onDisconnected(self):
         self.sigDisconnected.emit()
-        if self.csvfd is not None:
-            self.csvfd.close()
-            self.csvfd = None
+        self.logger.stop()
 
     def reportError(self, err):
         print(err)
@@ -167,7 +202,6 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         self.__worker.moveToThread(self.__workerthread)
         self.__worker.start()
 
-
     def showStatusError(self, errstr):
         # Show for 2 seconds
         self.statusBar.showMessage("Error: {}".format(errstr), 2000)
@@ -188,9 +222,10 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
             self.lstSyringes.addItem(liststr)
 
 
-qApp = QtGui.QApplication(sys.argv)
+if __name__ == '__main__':
+    qApp = QtGui.QApplication(sys.argv)
 
-wMain = MainUi()
-wMain.show()
+    wMain = MainUi()
+    wMain.show()
 
-sys.exit(qApp.exec_())
+    sys.exit(qApp.exec_())
