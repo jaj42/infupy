@@ -109,10 +109,10 @@ class FreseniusSyringe(Syringe):
         self.__comm.cmdq.join()
         t.cancel()
 
-        result = self.__comm.recvq.get()
-        if result.error == True and result.value == "Timeout":
-            raise CommunicationError(result.value)
-        return result
+        reply = self.__comm.recvq.get()
+        if reply.error == True and reply.value == "Timeout":
+            raise CommunicationError(reply.value)
+        return reply
 
     def execCommand(self, command, flags=[], args=[]):
         if len(flags) > 0:
@@ -138,30 +138,30 @@ class FreseniusSyringe(Syringe):
     def readRate(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.rate])
         if reply.error:
-            raise CommandError(result.value)
+            raise CommandError(reply.value)
         return extractRate(reply.value)
 
     def readVolume(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.volume])
         if reply.error:
-            raise CommandError(result.value)
+            raise CommandError(reply.value)
         return extractVolume(reply.value)
 
     def readDrug(self):
         reply = self.execCommand(Command.readdrug)
         if reply.error:
-            raise CommandError(result.value)
+            raise CommandError(reply.value)
         return reply.value
 
     def resetVolume(self):
         reply = self.execCommand(Command.resetvolume)
         if reply.error:
-            raise CommandError(result.value)
+            raise CommandError(reply.value)
 
     def readDeviceType(self):
         reply = self.execCommand(Command.readfixed, flags=[FixedVarId.devicetype])
         if reply.error:
-            raise CommandError(result.value)
+            raise CommandError(reply.value)
         return reply.value
 
     # Spontaneous variable handling
@@ -169,16 +169,16 @@ class FreseniusSyringe(Syringe):
         super(FreseniusSyringe, self).registerEvent(event)
         reply = self.execCommand(Command.enspont, flags=self._events)
         if reply.error:
-            raise CommandError(result.value)
+            raise CommandError(reply.value)
 
     def unregisterEvent(self, event):
         super(FreseniusSyringe, self).unregisterEvent(event)
         reply = self.execCommand(Command.disspont)
         if reply.error:
-            raise CommandError(result.value)
+            raise CommandError(reply.value)
         reply = self.execCommand(Command.enspont, flags=self._events)
         if reply.error:
-            raise CommandError(result.value)
+            raise CommandError(reply.value)
 
     def clearEvents(self):
         super(FreseniusSyringe, self).clearEvents()
