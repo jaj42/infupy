@@ -1,10 +1,11 @@
-import serial
 import threading
 import queue
 import time
 
 from enum import Enum
 from datetime import datetime
+
+import serial
 
 from infupy.backends.common import *
 
@@ -110,7 +111,7 @@ class FreseniusSyringe(Syringe):
         t.cancel()
 
         reply = self.__comm.recvq.get()
-        if reply.error == True and reply.value == "Timeout":
+        if reply.error and reply.value == "Timeout":
             raise CommunicationError(reply.value)
         return reply
 

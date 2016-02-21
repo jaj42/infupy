@@ -1,1 +1,1 @@
-__all__ = ['syringoreceuil.py', 'syringorecueil_ui.py']
+__all__ = ['syringorecueil_ui.py']
