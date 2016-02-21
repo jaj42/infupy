@@ -4,6 +4,7 @@ import queue
 import time
 
 from enum import Enum
+from datetime import datetime
 
 from infupy.backends.common import *
 
@@ -90,7 +91,6 @@ class FreseniusSyringe(Syringe):
         else:
             self.__index = str(index).encode('ASCII')
         self.connect()
-        self.__comm.callbacks[self.__index] = []
 
     def __del__(self):
         self.disconnect()
@@ -133,7 +133,7 @@ class FreseniusSyringe(Syringe):
         try:
             self.execCommand(Command.disconnect)
         except CommunicationError:
-            pass
+            pass # CommunicationError means we're already disconnected.
 
     def readRate(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.rate])
@@ -165,9 +165,6 @@ class FreseniusSyringe(Syringe):
         return reply.value
 
     # Spontaneous variable handling
-    def addCallback(self, func):
-        self.__comm.callbacks[self.__index].append(func)
-
     def registerEvent(self, event):
         super(FreseniusSyringe, self).registerEvent(event)
         reply = self.execCommand(Command.enspont, flags=self._events)
@@ -228,19 +225,19 @@ class FreseniusComm(serial.Serial):
 
         self.recvq = queue.Queue()
         self.cmdq  = queue.Queue(maxsize = 10)
-        self.callbacks = dict()
+        self.eventq = queue.Queue()
 
         # Write lock to make sure only one source writes at a time
-        self.txlock = threading.Lock()
+        self.__txlock = threading.Lock()
 
         self.__rxthread = RecvThread(comm   = self,
                                      recvq  = self.recvq,
                                      cmdq   = self.cmdq,
-                                     txlock = self.txlock)
+                                     txlock = self.__txlock)
 
         self.__txthread = SendThread(comm   = self,
                                      cmdq   = self.cmdq,
-                                     txlock = self.txlock)
+                                     txlock = self.__txlock)
 
         self.__rxthread.daemon = True
         self.__rxthread.start()
@@ -312,9 +309,7 @@ class RecvThread(threading.Thread):
             if origin is None or not origin.isdigit():
                 return
             iorigin = int(origin)
-            if iorigin in self.__comm.callbacks:
-                for func in self.__comm.callbacks[iorigin]:
-                    func(iorigin, msg)
+            self.__comm.eventq.put((datetime.now(), iorigin, msg))
 
         else:
             pass
