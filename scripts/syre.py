@@ -1,4 +1,4 @@
-import sys, time, csv, io, queue
+import sys, os.path, time, csv, io, queue
 
 from PyQt4 import QtCore, QtGui
 
@@ -13,6 +13,7 @@ class Worker(QtCore.QObject):
 
     def __init__(self):
         super(Worker, self).__init__()
+        self.destfolder = os.path.expanduser("~")
         self.port = ""
         self.conn = None
         self.base = None
@@ -20,6 +21,7 @@ class Worker(QtCore.QObject):
         self.syringes = dict()
         self.csvfd = io.IOBase() # ensure close() method is present.
         self.csv = None
+        self.shouldrun = False
 
         self.conntimer = QtCore.QTimer()
         self.conntimer.timeout.connect(self.connectionLoop)
@@ -27,16 +29,29 @@ class Worker(QtCore.QObject):
         self.logtimer = QtCore.QTimer()
         self.logtimer.timeout.connect(self.logLoop)
 
-    def start(self):
         self.conntimer.start(5000) # 5 seconds
 
-    def stop(self):
-        self.conntimer.stop()
+    @QtCore.pyqtSlot()
+    def start(self):
+        self.shouldrun = True
 
+    @QtCore.pyqtSlot()
+    def stop(self):
+        self.shouldrun = False
+
+    @QtCore.pyqtSlot(str)
     def setport(self, port):
         self.port = port
 
+    @QtCore.pyqtSlot(str)
+    def setfolder(self, folder):
+        self.destfolder = folder
+
     def connectionLoop(self):
+        if not self.shouldrun:
+            self.onDisconnected()
+            return
+
         if not self.checkSerial(): self.connectSerial()
         if not self.checkBase():
             self.onDisconnected()
@@ -74,13 +89,16 @@ class Worker(QtCore.QObject):
     def onConnected(self):
         self.sigConnected.emit()
         filename = time.strftime('%Y%m%d-%H%M.csv')
-        self.csvfd = open(filename, 'w', newline='')
+        filepath = os.path.join(self.destfolder, filename)
+        self.csvfd = open(filepath, 'w', newline='')
         self.csv = csv.DictWriter(self.csvfd, fieldnames = ['datetime', 'syringe', 'volume'])
         self.csv.writeheader()
-        self.logtimer.start(1000) # 1 seconds
+        self.logtimer.start(500) # .5 seconds
 
     def onDisconnected(self):
         self.sigDisconnected.emit()
+        self.syringes = dict()
+        self.sigUpdateSyringes.emit([])
         self.logtimer.stop()
         self.logLoop() # Call once more to empty the queue.
         self.csvfd.close()
@@ -172,7 +190,16 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
 
         self.__worker.moveToThread(self.__workerthread)
         self.__workerthread.start()
-        self.__worker.start()
+
+        # Continue UI initialization
+        self.txtFolder.textChanged.connect(self.__worker.setfolder)
+        self.btnBrowse.clicked.connect(self.browsefolder)
+        self.btnStart.clicked.connect(self.__worker.start)
+        self.btnStop.clicked.connect(self.__worker.stop)
+
+    def browsefolder(self):
+        destfolder = QtGui.QFileDialog.getExistingDirectory(self, "Choose destination Folder")
+        self.txtFolder.setText(destfolder)
 
     def showStatusError(self, errstr):
         # Show for 3 seconds
