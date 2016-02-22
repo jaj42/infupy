@@ -5,6 +5,8 @@ from PyQt4 import QtCore, QtGui
 import infupy.backends.fresenius as fresenius
 from infupy.gui.syringorecueil_ui import Ui_wndMain
 
+DEBUG = True
+
 class Worker(QtCore.QObject):
     sigConnected      = QtCore.pyqtSignal()
     sigDisconnected   = QtCore.pyqtSignal()
@@ -65,8 +67,10 @@ class Worker(QtCore.QObject):
     def logLoop(self):
         try: # Ensure file is open and writable.
             if not self.csvfd.writable():
-                raise IOError
-        except IOError:
+                raise IOError("Not writable")
+        except IOError as e:
+            if self.shouldrun:
+                self.reportUI("File: {}".format(e))
             return
 
         while True: # Dump the whole queue to csv
@@ -78,10 +82,10 @@ class Worker(QtCore.QObject):
             try:
                 volume = fresenius.extractVolume(msg)
             except ValueError:
-                self.reportError("Failed to decode volume value")
+                self.reportUI("Failed to decode volume value")
                 continue
 
-            print("{}:{}".format(origin, volume))
+            if DEBUG: print("{}:{}:{}".format(timestamp, origin, volume))
             self.csv.writerow({'datetime' : timestamp,
                                'syringe'  : origin,
                                'volume'   : volume})
@@ -91,6 +95,7 @@ class Worker(QtCore.QObject):
         filename = time.strftime('%Y%m%d-%H%M.csv')
         filepath = os.path.join(self.destfolder, filename)
         self.csvfd = open(filepath, 'w', newline='')
+        self.reportUI("Opened file: {}".format(filepath))
         self.csv = csv.DictWriter(self.csvfd, fieldnames = ['datetime', 'syringe', 'volume'])
         self.csv.writeheader()
         self.logtimer.start(500) # .5 seconds
@@ -98,17 +103,18 @@ class Worker(QtCore.QObject):
     def onDisconnected(self):
         self.sigDisconnected.emit()
         self.syringes = dict()
+        self.base = None
         self.sigUpdateSyringes.emit([])
         self.logtimer.stop()
         self.logLoop() # Call once more to empty the queue.
         self.csvfd.close()
 
     def checkSyringes(self):
-        for i, s in self.syringes.iteritems():
+        for i, s in self.syringes.items():
             try:
                 s.readDeviceType()
             except Exception as e:
-                self.reportError("Syringe {} error: {}".format(i, e))
+                self.reportUI("Syringe {} error: {}".format(i, e))
                 del self.syringes[i]
             else:
                 # Register volume event in case the syringe got reset.
@@ -128,7 +134,7 @@ class Worker(QtCore.QObject):
         try:
             self.conn.name
         except Exception as e:
-            self.reportError("Serial port exception: {}".format(e))
+            self.reportUI("Serial port exception: {}".format(e))
             return False
         else:
             return True
@@ -137,7 +143,7 @@ class Worker(QtCore.QObject):
         try:
             self.conn = fresenius.FreseniusComm(self.port)
         except Exception as e:
-            self.reportError("Failed to open serial port: {}".format(e))
+            self.reportUI("Failed to open serial port: {}".format(e))
             return False
         else:
             return True
@@ -146,7 +152,7 @@ class Worker(QtCore.QObject):
         try:
             self.base.readDeviceType()
         except Exception as e:
-            self.reportError("Base error: {}".format(e))
+            self.reportUI("Base error: {}".format(e))
             return False
         else:
             return True
@@ -155,13 +161,13 @@ class Worker(QtCore.QObject):
         try:
             self.base = fresenius.FreseniusBase(self.conn)
         except Exception as e:
-            self.reportError("Failed to connect to base: {}".format(e))
+            self.reportUI("Failed to connect to base: {}".format(e))
             return False
         else:
             return True
 
-    def reportError(self, err):
-        print(err)
+    def reportUI(self, err):
+        if DEBUG: print(err)
         self.sigError.emit(str(err))
 
 
