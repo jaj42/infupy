@@ -1,160 +1,103 @@
-# vim: set fileencoding=utf-8 :
+import sys, time, csv, io, queue
 
 from PyQt4 import QtCore, QtGui
 
 import infupy.backends.fresenius as fresenius
 from infupy.gui.syringorecueil_ui import Ui_wndMain
 
-import sys, time, csv, io, threading
-
-# In addition to the GUI, two threads are running.
-# - A device connection thread, checking the connection to the base and
-#   the syringes every 5 seconds.
-# - A logger thread, reading the event queue every 1 second and logging
-#   perfused volumes to the csv file.
-
-class LogWorker(QtCore.QObject):
-    def __init__(self, eventq):
-        self.eventq = eventq
-        self.flock = threading.Lock()
-        self.csvfd = io.IOBase() # ensure close() method is present.
-        self.csv = None
-
-        self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.loop)
-
-    def __del__(self):
-        self.stop()
-
-    def start(self):
-        with flock:
-            filename = time.strftime('%Y%m%d-%H%M.csv')
-            self.csvfd = open(filename, 'w', newline='')
-            self.csv = csv.DictWriter(self.csvfd, fieldnames = ['datetime', 'syringe', 'volume'])
-            self.csv.writeheader()
-        self.timer.start(1000) # 1 seconds
-
-    def stop(self):
-        self.timer.stop()
-        self.loop() # Run once more to empty queue.
-        with self.flock:
-            self.csvfd.close()
-
-    def loop(self):
-        try: # Ensure file is open and writable.
-            if not self.csvfd.writable():
-                raise IOError
-        except IOError:
-            return
-
-        with self.flock:
-            while True:
-                try:
-                    timestamp, origin, msg = self.eventq.get_nowait()
-                except queue.Empty:
-                    break
-
-                try:
-                    volume = fresenius.extractVolume(msg)
-                except ValueError:
-                    print("Failed to decode volume value")
-                    continue
-
-                print("{}:{}".format(origin, volume))
-                self.csv.writerow({'datetime' : timestamp,
-                                   'syringe'  : origin,
-                                   'volume'   : volume})
-
-
-class DeviceWorker(QtCore.QObject):
+class Worker(QtCore.QObject):
     sigConnected      = QtCore.pyqtSignal()
     sigDisconnected   = QtCore.pyqtSignal()
     sigUpdateSyringes = QtCore.pyqtSignal(list)
     sigError          = QtCore.pyqtSignal(str)
 
     def __init__(self):
-        super(DeviceWorker, self).__init__()
+        super(Worker, self).__init__()
         self.port = ""
         self.conn = None
         self.base = None
         self.logger = None
         self.syringes = dict()
+        self.csvfd = io.IOBase() # ensure close() method is present.
+        self.csv = None
 
-        self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.loop)
+        self.conntimer = QtCore.QTimer()
+        self.conntimer.timeout.connect(self.connectionLoop)
+
+        self.logtimer = QtCore.QTimer()
+        self.logtimer.timeout.connect(self.logLoop)
 
     def start(self):
-        self.timer.start(5000) # 5 seconds
+        self.conntimer.start(5000) # 5 seconds
 
     def stop(self):
-        self.timer.stop()
+        self.conntimer.stop()
 
     def setport(self, port):
         self.port = port
 
-    def loop(self):
-        if not self.checkCOMPort():
-            if not self.tryCOMPort(): return
+    def connectionLoop(self):
+        if not self.checkSerial(): self.connectSerial()
         if not self.checkBase():
-            if not self.tryConnectBase(): return
+            self.onDisconnected()
+            if self.connectBase():
+                self.onConnected()
+            else:
+                return
         self.checkSyringes()
-        self.findNewSyringes()
+        self.attachNewSyringes()
 
-    def checkCOMPort(self):
-        try:
-            self.conn.name
-        except Exception as e:
-            self.reportError("Serial port exception: {}".format(e))
-            self.conn = None
-            return False
-        else:
-            return True
+    def logLoop(self):
+        try: # Ensure file is open and writable.
+            if not self.csvfd.writable():
+                raise IOError
+        except IOError:
+            return
 
-    def tryCOMPort(self):
-        try:
-            self.conn = fresenius.FreseniusComm(self.port)
-        except Exception as e:
-            self.onDisconnected()
-            self.reportError("Failed to open COM port: {}".format(e))
-            return False
-        else:
-            return True
+        while True: # Dump the whole queue to csv
+            try:
+                timestamp, origin, msg = self.conn.eventq.get_nowait()
+            except queue.Empty:
+                break
 
-    def checkBase(self):
-        try:
-            self.base.readDeviceType()
-        except Exception as e:
-            self.base = None
-            self.onDisconnected()
-            self.reportError("Lost base: {}".format(e))
-            return False
-        else:
-            return True
+            try:
+                volume = fresenius.extractVolume(msg)
+            except ValueError:
+                self.reportError("Failed to decode volume value")
+                continue
 
-    def tryConnectBase(self):
-        try:
-            self.base = fresenius.FreseniusBase(self.conn)
-        except Exception as e:
-            self.reportError("Failed to connect to base: {}".format(e))
-            return False
-        else:
-            sleep(1)
-            self.onConnected()
-            return True
+            print("{}:{}".format(origin, volume))
+            self.csv.writerow({'datetime' : timestamp,
+                               'syringe'  : origin,
+                               'volume'   : volume})
+
+    def onConnected(self):
+        self.sigConnected.emit()
+        filename = time.strftime('%Y%m%d-%H%M.csv')
+        self.csvfd = open(filename, 'w', newline='')
+        self.csv = csv.DictWriter(self.csvfd, fieldnames = ['datetime', 'syringe', 'volume'])
+        self.csv.writeheader()
+        self.logtimer.start(1000) # 1 seconds
+
+    def onDisconnected(self):
+        self.sigDisconnected.emit()
+        self.logtimer.stop()
+        self.logLoop() # Call once more to empty the queue.
+        self.csvfd.close()
 
     def checkSyringes(self):
         for i, s in self.syringes.iteritems():
             try:
                 s.readDeviceType()
             except Exception as e:
-                self.reportError("Lost syringe {}".format(i))
+                self.reportError("Syringe {} error: {}".format(i, e))
                 del self.syringes[i]
             else:
-                # Register the event in case the syringe got reset.
+                # Register volume event in case the syringe got reset.
                 # If the event was already registered, this is a no-op.
                 s.registerEvent(fresenius.VarId.volume)
 
-    def findNewSyringes(self):
+    def attachNewSyringes(self):
         modids = self.base.listModules()
         self.sigUpdateSyringes.emit(modids)
         for modid in modids:
@@ -163,16 +106,41 @@ class DeviceWorker(QtCore.QObject):
                 s.registerEvent(fresenius.VarId.volume)
                 self.syringes[modid] = s
 
-    def onConnected(self):
-        self.sigConnected.emit()
-        self.logger = LogWorker(self.conn.eventq)
-
-    def onDisconnected(self):
-        self.sigDisconnected.emit()
+    def checkSerial(self):
         try:
-            self.logger.stop()
-        except AttributeError:
-            pass
+            self.conn.name
+        except Exception as e:
+            self.reportError("Serial port exception: {}".format(e))
+            return False
+        else:
+            return True
+
+    def connectSerial(self):
+        try:
+            self.conn = fresenius.FreseniusComm(self.port)
+        except Exception as e:
+            self.reportError("Failed to open serial port: {}".format(e))
+            return False
+        else:
+            return True
+
+    def checkBase(self):
+        try:
+            self.base.readDeviceType()
+        except Exception as e:
+            self.reportError("Base error: {}".format(e))
+            return False
+        else:
+            return True
+
+    def connectBase(self):
+        try:
+            self.base = fresenius.FreseniusBase(self.conn)
+        except Exception as e:
+            self.reportError("Failed to connect to base: {}".format(e))
+            return False
+        else:
+            return True
 
     def reportError(self, err):
         print(err)
@@ -191,7 +159,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
 
         # Init worker
         self.__workerthread = QtCore.QThread()
-        self.__worker = DeviceWorker()
+        self.__worker = Worker()
 
         # Worker callbacks and signals
         self.comboCom.editTextChanged.connect(self.__worker.setport)
@@ -203,11 +171,12 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         self.__worker.sigError.connect(self.showStatusError)
 
         self.__worker.moveToThread(self.__workerthread)
+        self.__workerthread.start()
         self.__worker.start()
 
     def showStatusError(self, errstr):
-        # Show for 2 seconds
-        self.statusBar.showMessage("Error: {}".format(errstr), 2000)
+        # Show for 3 seconds
+        self.statusBar.showMessage(errstr, 3000)
 
     def connected(self):
         self.connStatusLabel.setStyleSheet("QLabel{background : green;}")
