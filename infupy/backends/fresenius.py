@@ -86,7 +86,11 @@ def extractVolume(msg):
 class FreseniusSyringe(Syringe):
     def __init__(self, comm, index):
         super(FreseniusSyringe, self).__init__()
-        self.__comm = comm
+        if not isinstance(comm, FreseniusComm):
+            self.__comm = None
+            raise CommunicationError("Serial link error")
+        else:
+            self.__comm = comm
         if isinstance(index, bytes):
             self.__index = index
         else:
@@ -94,7 +98,8 @@ class FreseniusSyringe(Syringe):
         self.connect()
 
     def __del__(self):
-        self.disconnect()
+        if self.__comm is not None:
+            self.disconnect()
 
     def execRawCommand(self, msg):
         def qTimeout():
@@ -197,9 +202,6 @@ class FreseniusBase(FreseniusSyringe):
         super(FreseniusBase, self).__init__(comm, 0)
         if wait:
             time.sleep(1)
-
-    def __del__(self):
-        self.disconnect()
 
     def listModules(self):
         modules = []
