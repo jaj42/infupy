@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>377</width>
-    <height>388</height>
+    <height>305</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -17,175 +17,82 @@
    </sizepolicy>
   </property>
   <property name="windowTitle">
-   <string>SyringoReceuil</string>
+   <string>SyRe</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <widget class="QGroupBox" name="groupBox">
-    <property name="geometry">
-     <rect>
-      <x>20</x>
-      <y>60</y>
-      <width>341</width>
-      <height>151</height>
-     </rect>
-    </property>
-    <property name="title">
-     <string>Seringues</string>
-    </property>
-    <widget class="QListWidget" name="lstSyringes">
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>20</y>
-       <width>321</width>
-       <height>91</height>
-      </rect>
-     </property>
-    </widget>
-    <widget class="QPushButton" name="btnSUpdate">
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>120</y>
-       <width>83</width>
-       <height>24</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>Update</string>
-     </property>
-    </widget>
-   </widget>
-   <widget class="QComboBox" name="comboCom">
-    <property name="geometry">
-     <rect>
-      <x>20</x>
-      <y>20</y>
-      <width>121</width>
-      <height>22</height>
-     </rect>
-    </property>
-    <property name="editable">
-     <bool>true</bool>
-    </property>
+   <layout class="QVBoxLayout" name="verticalLayout">
     <item>
-     <property name="text">
-      <string>COM1</string>
-     </property>
+     <widget class="QComboBox" name="comboCom">
+      <property name="editable">
+       <bool>true</bool>
+      </property>
+      <item>
+       <property name="text">
+        <string>COM1</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>COM2</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>COM3</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>COM4</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>COM5</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>COM6</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>COM7</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>/dev/ttyUSB0</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>/dev/ttyUSB1</string>
+       </property>
+      </item>
+     </widget>
     </item>
     <item>
-     <property name="text">
-      <string>COM2</string>
-     </property>
+     <widget class="QGroupBox" name="groupBox">
+      <property name="title">
+       <string>Syringe Pumps</string>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <item>
+        <widget class="QListWidget" name="lstSyringes">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </item>
-    <item>
-     <property name="text">
-      <string>COM3</string>
-     </property>
-    </item>
-    <item>
-     <property name="text">
-      <string>COM4</string>
-     </property>
-    </item>
-   </widget>
-   <widget class="QPushButton" name="btnConnect">
-    <property name="geometry">
-     <rect>
-      <x>160</x>
-      <y>20</y>
-      <width>91</width>
-      <height>24</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Connecter</string>
-    </property>
-   </widget>
-   <widget class="QLabel" name="lblSpin">
-    <property name="geometry">
-     <rect>
-      <x>340</x>
-      <y>340</y>
-      <width>16</width>
-      <height>16</height>
-     </rect>
-    </property>
-    <property name="sizePolicy">
-     <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-      <horstretch>0</horstretch>
-      <verstretch>0</verstretch>
-     </sizepolicy>
-    </property>
-    <property name="frameShape">
-     <enum>QFrame::Box</enum>
-    </property>
-    <property name="text">
-     <string/>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="btnStart">
-    <property name="geometry">
-     <rect>
-      <x>20</x>
-      <y>340</y>
-      <width>83</width>
-      <height>24</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Start</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="btnStop">
-    <property name="geometry">
-     <rect>
-      <x>120</x>
-      <y>340</y>
-      <width>83</width>
-      <height>24</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Stop</string>
-    </property>
-   </widget>
-   <widget class="QGroupBox" name="groupBox_2">
-    <property name="geometry">
-     <rect>
-      <x>20</x>
-      <y>219</y>
-      <width>341</width>
-      <height>101</height>
-     </rect>
-    </property>
-    <property name="title">
-     <string>Tubes</string>
-    </property>
-    <widget class="QListWidget" name="listWidget">
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>20</y>
-       <width>321</width>
-       <height>71</height>
-      </rect>
-     </property>
-    </widget>
-   </widget>
-   <widget class="QPushButton" name="btnDisconnect">
-    <property name="geometry">
-     <rect>
-      <x>270</x>
-      <y>20</y>
-      <width>91</width>
-      <height>24</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Deconnecter</string>
-    </property>
-   </widget>
+   </layout>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
  </widget>
