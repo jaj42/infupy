@@ -1,10 +1,10 @@
 class CommunicationError(Exception):
     def __str__(self):
-        return "Communication error. Reason: {}".format(self.args)
+        return "Communication error: {}".format(self.args)
 
 class CommandError(Exception):
     def __str__(self):
-        return "Command error. {}".format(self.args)
+        return "Command error: {}".format(self.args)
 
 class Syringe():
     _events = set()
