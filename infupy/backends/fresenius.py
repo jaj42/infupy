@@ -87,10 +87,10 @@ class FreseniusSyringe(Syringe):
     def __init__(self, comm, index):
         super(FreseniusSyringe, self).__init__()
         if not isinstance(comm, FreseniusComm):
-            self.__comm = None
+            self._comm = None
             raise CommunicationError("Serial link error")
         else:
-            self.__comm = comm
+            self._comm = comm
         if isinstance(index, bytes):
             self.__index = index
         else:
@@ -98,24 +98,24 @@ class FreseniusSyringe(Syringe):
         self.connect()
 
     def __del__(self):
-        if self.__comm is not None:
+        if self._comm is not None:
             self.disconnect()
 
     def execRawCommand(self, msg):
         def qTimeout():
-            self.__comm.recvq.put(Reply(error = True, value = "Timeout"))
-            self.__comm.cmdq.task_done()
+            self._comm.recvq.put(Reply(error = True, value = "Timeout"))
+            self._comm.cmdq.task_done()
         
         cmd = genFrame(self.__index + msg)
-        self.__comm.cmdq.put(cmd)
+        self._comm.cmdq.put(cmd)
 
         # Time out after 1 second in case of communication failure.
         t = threading.Timer(1, qTimeout)
         t.start()
-        self.__comm.cmdq.join()
+        self._comm.cmdq.join()
         t.cancel()
 
-        reply = self.__comm.recvq.get()
+        reply = self._comm.recvq.get()
         if reply.error and reply.value == "Timeout":
             raise CommunicationError(reply.value)
         return reply
@@ -205,8 +205,14 @@ class FreseniusBase(FreseniusSyringe):
 
     def __del__(self):
         super(FreseniusBase, self).__del__()
-        self.__comm.cmdq.clear()
-        self.__comm.recvq.clear()
+        try:
+            self._comm.cmdq.clear()
+        except AttributeError:
+            pass
+        try:
+            self._comm.recvq.clear()
+        except AttributeError:
+            pass
 
     def listModules(self):
         modules = []
