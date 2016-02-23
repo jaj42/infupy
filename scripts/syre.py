@@ -112,7 +112,8 @@ class Worker(QtCore.QObject):
     def checkSyringes(self):
         for i, s in self.syringes.copy().items():
             try:
-                s.readDeviceType()
+                dtype = s.readDeviceType()
+                if DEBUG: print("Device: {}".format(dtype))
             except Exception as e:
                 self.reportUI("Syringe {} error: {}".format(i, e))
                 del self.syringes[i]
@@ -122,13 +123,16 @@ class Worker(QtCore.QObject):
                 s.registerEvent(fresenius.VarId.volume)
 
     def attachNewSyringes(self):
-        modids = self.base.listModules()
-        self.sigUpdateSyringes.emit(modids)
-        for modid in modids:
-            if not modid in self.syringes.keys():
-                s = fresenius.FreseniusSyringe(self.conn, modid)
-                s.registerEvent(fresenius.VarId.volume)
-                self.syringes[modid] = s
+        try:
+            modids = self.base.listModules()
+            self.sigUpdateSyringes.emit(modids)
+            for modid in modids:
+                if not modid in self.syringes.keys():
+                    s = fresenius.FreseniusSyringe(self.conn, modid)
+                    s.registerEvent(fresenius.VarId.volume)
+                    self.syringes[modid] = s
+        except fresenius.CommunicationError as e:
+            self.reportUI("Attach syringe error: {}".format(e))
 
     def checkSerial(self):
         try:
@@ -150,7 +154,8 @@ class Worker(QtCore.QObject):
 
     def checkBase(self):
         try:
-            self.base.readDeviceType()
+            dtype = self.base.readDeviceType()
+            if DEBUG: print("Device: {}".format(dtype))
         except Exception as e:
             self.reportUI("Base error: {}".format(e))
             return False
@@ -228,6 +233,10 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
 
 
 if __name__ == '__main__':
+    if DEBUG:
+        sys.stdout = open('C:/syre_stdout.txt', 'a')
+        sys.stderr = open('C:/syre_stderr.txt', 'a')
+
     qApp = QtGui.QApplication(sys.argv)
 
     wMain = MainUi()
