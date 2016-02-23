@@ -102,10 +102,9 @@ class Worker(QtCore.QObject):
 
     def onDisconnected(self):
         self.sigDisconnected.emit()
-        # Clean up everything
+        # Clean up
         self.syringes = dict()
         self.base = None
-        self.conn = None
         self.sigUpdateSyringes.emit([])
         # Stop csv logging
         self.logtimer.stop()

@@ -203,6 +203,11 @@ class FreseniusBase(FreseniusSyringe):
         if wait:
             time.sleep(1)
 
+    def __del__(self):
+        super(FreseniusBase, self).__del__()
+        self.__comm.cmdq.clear()
+        self.__comm.recvq.clear()
+
     def listModules(self):
         modules = []
         reply = self.execCommand(Command.readvar, flags=[VarId.modules])
