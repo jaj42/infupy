@@ -12,6 +12,6 @@ setup(name         = 'infupy',
           'pyserial'
       ],
       scripts = [
-          'scripts/syre.py'
+          'scripts/syre.pyw'
       ]
 )
