@@ -68,7 +68,7 @@ class Worker(QtCore.QObject):
         try: # Ensure file is open and writable.
             if not self.csvfd.writable():
                 raise IOError("Not writable")
-        except IOError as e:
+        except (IOError, ValueError) as e:
             if self.shouldrun:
                 self.reportUI("File: {}".format(e))
             return
@@ -110,7 +110,7 @@ class Worker(QtCore.QObject):
         self.csvfd.close()
 
     def checkSyringes(self):
-        for i, s in self.syringes.items():
+        for i, s in self.syringes.copy().items():
             try:
                 s.readDeviceType()
             except Exception as e:

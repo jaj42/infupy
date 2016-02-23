@@ -9,7 +9,7 @@ import serial
 
 from infupy.backends.common import *
 
-DEBUG = True
+DEBUG = False
 
 def genCheckSum(msg):
     asciisum = sum(msg)
