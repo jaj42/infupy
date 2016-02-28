@@ -237,7 +237,7 @@ class FreseniusComm(serial.Serial):
         if DEBUG:
             self.logfile = open('fresenius_raw.log', 'wb')
 
-        self.recvq = queue.Queue()
+        self.recvq = queue.LifoQueue()
         self.cmdq  = queue.Queue(maxsize = 10)
         self.eventq = queue.Queue()
 
@@ -308,8 +308,8 @@ class RecvThread(threading.Thread):
                 errmsg = ERRcmd[msg]
             else:
                 errmsg = "Unknown Error code {}".format(msg)
-            self.allowNewCmd()
             self.__recvq.put(Reply(origin, errmsg, error = True))
+            self.allowNewCmd()
             if DEBUG: print("Command error: {}".format(errmsg))
 
         elif status is ReplyStatus.correct:
