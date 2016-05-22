@@ -298,7 +298,7 @@ class RecvThread(threading.Thread):
         try:
             self.__cmdq.task_done()
         except ValueError as e:
-            if DEBUG: print("State machine got confused: " + str(e))
+            if DEBUG: print("State machine got confused: " + str(e), file=sys.stderr)
 
     def enqueueRxBuffer(self):
         status, origin, msg, check = parseReply(self.__buffer)
@@ -313,7 +313,7 @@ class RecvThread(threading.Thread):
                 error = Error.EUNDEF
             self.allowNewCmd()
             self.__recvq.put(Reply(origin, error, error = True))
-            if DEBUG: print("Command error: {}".format(error))
+            if DEBUG: print("Command error: {}".format(error), file=sys.stderr)
 
         elif status is ReplyStatus.correct:
             # This is a reply to one of our commands
@@ -345,7 +345,7 @@ class RecvThread(threading.Thread):
                     error = Error(c)
                 except:
                     error = Error.EUNDEF
-                print("Protocol error: {}".format(error))
+                print("Protocol error: {}".format(error), file=sys.stderr)
                 self.__recvq.put(Reply(error = True, value = error))
                 self.allowNewCmd()
                 insideNAKerr = False
@@ -363,7 +363,7 @@ class RecvThread(threading.Thread):
             elif insideCommand:
                 self.__buffer += c
             else:
-                if DEBUG: print("Unexpected char received: {}".format(c))
+                if DEBUG: print("Unexpected char received: {}".format(c), file=sys.stderr)
 
 
 class SendThread(threading.Thread):
