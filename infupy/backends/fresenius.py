@@ -2,7 +2,7 @@ import threading
 import queue
 import time
 
-from enum import Enum
+from enum import Enum, unique
 from datetime import datetime
 
 import serial
@@ -101,9 +101,9 @@ class FreseniusSyringe(Syringe):
         if self._comm is not None:
             self.disconnect()
 
-    def execRawCommand(self, msg):
+    def execRawCommand(self, msg, retry=True):
         def qTimeout():
-            self._comm.recvq.put(Reply(error = True, value = "Timeout"))
+            self._comm.recvq.put(Reply(error = True, value = Error.ETIMEOUT))
             self._comm.cmdq.task_done()
         
         cmd = genFrame(self.__index + msg)
@@ -116,8 +116,11 @@ class FreseniusSyringe(Syringe):
         t.cancel()
 
         reply = self._comm.recvq.get()
-        if reply.error and reply.value == "Timeout":
+        if reply.error and reply.value == Error.ETIMEOUT:
             raise CommunicationError(reply.value)
+
+        #if retry and reply.error:
+
         return reply
 
     def execCommand(self, command, flags=[], args=[]):
@@ -304,13 +307,13 @@ class RecvThread(threading.Thread):
 
         if status is ReplyStatus.incorrect:
             # Error condition
-            if msg in ERRcmd:
-                errmsg = ERRcmd[msg]
-            else:
-                errmsg = "Unknown Error code {}".format(msg)
+            try:
+                error = Error(msg)
+            except ValueError:
+                error = Error.EUNDEF
             self.allowNewCmd()
-            self.__recvq.put(Reply(origin, errmsg, error = True))
-            if DEBUG: print("Command error: {}".format(errmsg))
+            self.__recvq.put(Reply(origin, error, error = True))
+            if DEBUG: print("Command error: {}".format(error))
 
         elif status is ReplyStatus.correct:
             # This is a reply to one of our commands
@@ -338,12 +341,12 @@ class RecvThread(threading.Thread):
             if c == ENQ:
                 self.sendKeepalive()
             elif insideNAKerr:
-                if c in ERRdata:
-                    errmsg = ERRdata[c]
-                else:
-                    errmsg = "Unknown Error code {}".format(c)
-                print("Protocol error: {}".format(errmsg))
-                self.__recvq.put(Reply(error= True, value = errmsg))
+                try:
+                    error = Error(c)
+                except:
+                    error = Error.EUNDEF
+                print("Protocol error: {}".format(error))
+                self.__recvq.put(Reply(error = True, value = error))
                 self.allowNewCmd()
                 insideNAKerr = False
             elif c == ACK:
@@ -400,8 +403,8 @@ class Reply(object):
             self.origin = 0
         else:
             self.origin = int(origin)
-        self.value  = value
-        self.error  = error
+        self.value = value
+        self.error = error
 
     def __str__(self):
         return "Fresenius Reply: Origin={}, Value={}, Error={}".format(self.origin, self.value, self.error)
@@ -455,51 +458,88 @@ class ReplyStatus(Enum):
     spontadj  = b'M'
 
 # Errors
-ERRdata = {
-    b'\x31' : "Character Reception Problem",
-    b'\x32' : "Incorrect Check-sum",
-#    b'\x33' : "NOT USED",
-    b'\x34' : "Incorrect Address",
-    b'\x35' : "End of [ACK] Character time-out",
-    b'\x36' : "Receiver not Ready",
-    b'\x37' : "Incorrect Frame Length",
-    b'\x38' : "Presence of Control Code"
-}
+class Edata(Enum):
+    ERRdescr = {
+    }
+    def __str__(self):
+        return self.ERRdescr[self.value]
 
-ERRcmd = {
-    b'01' : "Unknown Command",
-    b'02' : "Command disabled in the current Mode",
-    b'03' : "Command disabled in this status",
-    b'04' : "Syntax Error",
-    b'05' : "Operating Mode not Authorized",
-    b'06' : "Operating Mode already active",
-    b'07' : "New operating mode disabled in this mode",
-    b'08' : "Parameter out off limit",
-    b'09' : "New operating mode disabled in this status",
-    b'0A' : "Identifier not used",
-    b'0B' : "Identifier incorrect",                          # a-z
-    b'0C' : "Message too long",                              # <= 80
-    b'0D' : "Communication session with the base not open",
-    b'0E' : "Communication with module impossible",
-#    b'0F' : "RESERVED",
-#    b'11' : "RESERVED",
-    b'12' : "Presence of an Alarm",
-#    b'13' : "RESERVED",
-    b'14' : "Attempt to launch infusion before flow rate selection",
-    b'15' : "Insufficient Volume to launch a bolus",
-    b'16' : "Impossible to launch the empy Syringe mode",
-#    b'17' : "RESERVED",
-#    b'18' : "RESERVED",
-#    b'19' : "RESERVED",
-    b'1A' : "Recorded event number incorrect",               # 1-64
-#    b'1B' : "RESERVED",
-#    b'1C' : "RESERVED",
-#    b'1D' : "RESERVED",
-    b'1E' : "The Communication with the module is not open",
-#    b'1F' : "The Communication with the module is already open",
-    b'1F' : "One of the modules is not in the manual mode",
-    b'20' : "Command not authorized with this Port",
-    b'22' : "New mode unauthorized",
-    b'24' : "Connection Mode incorrect",
-    b'25' : "Drug number incorrect"
+
+@unique
+class Error(Enum):
+    EUNDEF   = '?'
+    # Link layer errors
+    ECHAR    = b'\x31'
+    ECHKSUM  = b'\x32'
+    EADDR    = b'\x34'
+    ETIMEOUT = b'\x35'
+    ERNR     = b'\x36'
+    EFRAME   = b'\x37'
+    ECTRL    = b'\x38'
+    # Application layer errors
+    EUNKNOWN    = b'01'
+    ECMDMODE    = b'02'
+    ECMDSTAT    = b'03'
+    ESYNTAX     = b'04'
+    EMODEAUTH   = b'05'
+    EMODEAGAIN  = b'06'
+    EMODEMODE   = b'07'
+    ELIMIT      = b'08'
+    EMODESTAT   = b'09'
+    EIDENTU     = b'0A'
+    EIDENTI     = b'0B'
+    EMSGLONG    = b'0C'
+    ECOMBASE    = b'0D'
+    ECOMMODULEI = b'0E'
+    EALARM      = b'12'
+    ERATE       = b'14'
+    EVOLUME     = b'15'
+    EEMPTYMODE  = b'16'
+    EEVENT      = b'1A'
+    ECOMMODULE  = b'1E'
+    ENMAN       = b'1F'
+    EPORTAUTH   = b'20'
+    ENMODEAUTH  = b'22'
+    ECONMODEI   = b'24'
+    EDRUG       = b'25'
+
+    def __str__(self):
+        return ERRdescr[self]
+
+ERRdescr = {
+    Error.EUNDEF   : "Unknown Error",
+    # Link layer errors
+    Error.ECHAR    : "Character Reception Problem",
+    Error.ECHKSUM  : "Incorrect Check-sum",
+    Error.EADDR    : "Incorrect Address",
+    Error.ETIMEOUT : "End of [ACK] Character time-out",
+    Error.ERNR     : "Receiver not Ready",
+    Error.EFRAME   : "Incorrect Frame Length",
+    Error.ECTRL    : "Presence of Control Code",
+    # Application layer errors
+    Error.EUNKNOWN    : "Unknown Command",
+    Error.ECMDMODE    : "Command disabled in the current Mode",
+    Error.ECMDSTAT    : "Command disabled in this status",
+    Error.ESYNTAX     : "Syntax Error",
+    Error.EMODEAUTH   : "Operating Mode not Authorized",
+    Error.EMODEAGAIN  : "Operating Mode already active",
+    Error.EMODEMODE   : "New operating mode disabled in this mode",
+    Error.ELIMIT      : "Parameter out off limit",
+    Error.EMODESTAT   : "New operating mode disabled in this status",
+    Error.EIDENTU     : "Identifier not used",
+    Error.EIDENTI     : "Identifier incorrect",                          # a-z
+    Error.EMSGLONG    : "Message too long",                              # <= 80
+    Error.ECOMBASE    : "Communication session with the base not open",
+    Error.ECOMMODULEI : "Communication with module impossible",
+    Error.EALARM      : "Presence of an Alarm",
+    Error.ERATE       : "Attempt to launch infusion before flow rate selection",
+    Error.EVOLUME     : "Insufficient Volume to launch a bolus",
+    Error.EEMPTYMODE  : "Impossible to launch the empty Syringe mode",
+    Error.EEVENT      : "Recorded event number incorrect",               # 1-64
+    Error.ECOMMODULE  : "The Communication with the module is not open",
+    Error.ENMAN       : "One of the modules is not in the manual mode",
+    Error.EPORTAUTH   : "Command not authorized with this Port",
+    Error.ENMODEAUTH  : "New mode unauthorized",
+    Error.ECONMODEI   : "Connection Mode incorrect",
+    Error.EDRUG       : "Drug number incorrect"
 }
