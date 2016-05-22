@@ -240,7 +240,7 @@ class FreseniusComm(serial.Serial):
         if DEBUG:
             self.logfile = open('fresenius_raw.log', 'wb')
 
-        self.recvq = queue.Queue()
+        self.recvq = queue.LifoQueue()
         self.cmdq  = queue.Queue(maxsize = 10)
         self.eventq = queue.Queue()
 
