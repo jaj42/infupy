@@ -300,7 +300,11 @@ class RecvThread(threading.Thread):
         except ValueError as e:
             if DEBUG: print("State machine got confused: " + str(e), file=sys.stderr)
 
-    def enqueueRxBuffer(self):
+    def enqueueReply(reply):
+            self.__recvq.put(reply)
+            self.allowNewCmd()
+
+    def processRxBuffer(self):
         status, origin, msg, check = parseReply(self.__buffer)
         self.__buffer = b""
         self.sendACK()
@@ -311,14 +315,12 @@ class RecvThread(threading.Thread):
                 error = Error(msg)
             except ValueError:
                 error = Error.EUNDEF
-            self.__recvq.put(Reply(origin, error, error = True))
-            self.allowNewCmd()
+            self.enqueueReply(Reply(origin, error, error = True))
             if DEBUG: print("Command error: {}".format(error), file=sys.stderr)
 
         elif status is ReplyStatus.correct:
             # This is a reply to one of our commands
-            self.__recvq.put(Reply(origin, msg))
-            self.allowNewCmd()
+            self.enqueueReply(Reply(origin, msg))
 
         elif status is ReplyStatus.spont or status is ReplyStatus.spontadj:
             # Spontaneously generated information. We need to acknowledge.
@@ -346,8 +348,7 @@ class RecvThread(threading.Thread):
                 except:
                     error = Error.EUNDEF
                 print("Protocol error: {}".format(error), file=sys.stderr)
-                self.__recvq.put(Reply(error = True, value = error))
-                self.allowNewCmd()
+                self.enqueueReply(Reply(error = True, value = error))
                 insideNAKerr = False
             elif c == ACK:
                 pass
@@ -357,7 +358,7 @@ class RecvThread(threading.Thread):
             elif c == ETX:
                 # End of command marker
                 insideCommand = False
-                self.enqueueRxBuffer()
+                self.processRxBuffer()
             elif c == NAK:
                 insideNAKerr = True
             elif insideCommand:
