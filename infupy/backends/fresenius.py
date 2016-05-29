@@ -15,8 +15,6 @@ def genCheckSum(msg):
     asciisum = sum(msg)
     high, low = divmod(asciisum, 0x100)
     checksum = 0xFF - low
-    # Needs Python >= 3.5
-    #checkbytes = b"%02X" % checksum
     checkbytes = ("%02X" % checksum).encode('ASCII')
     return checkbytes
 
@@ -116,12 +114,14 @@ class FreseniusSyringe(Syringe):
         t.cancel()
 
         reply = self._comm.recvq.get()
-        if reply.error and reply.value == Error.ETIMEOUT:
+        if not reply.error:
+            return reply
+        if reply.value == Error.ERNR and retry:
+            if DEBUG: print("Error: {}. Retrying command.".format(e), file=sys.stderr)
+            return self.execRawCommand(msg, retry=False)
+        if reply.value == Error.ETIMEOUT:
             raise CommunicationError(reply.value)
 
-        #if retry and reply.error:
-
-        return reply
 
     def execCommand(self, command, flags=[], args=[]):
         if len(flags) > 0:
@@ -311,8 +311,8 @@ class RecvThread(threading.Thread):
                 error = Error(msg)
             except ValueError:
                 error = Error.EUNDEF
-            self.allowNewCmd()
             self.__recvq.put(Reply(origin, error, error = True))
+            self.allowNewCmd()
             if DEBUG: print("Command error: {}".format(error), file=sys.stderr)
 
         elif status is ReplyStatus.correct:
@@ -458,13 +458,6 @@ class ReplyStatus(Enum):
     spontadj  = b'M'
 
 # Errors
-class Edata(Enum):
-    ERRdescr = {
-    }
-    def __str__(self):
-        return self.ERRdescr[self.value]
-
-
 @unique
 class Error(Enum):
     EUNDEF   = '?'
