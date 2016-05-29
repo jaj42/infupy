@@ -116,12 +116,14 @@ class FreseniusSyringe(Syringe):
         reply = self._comm.recvq.get()
         if not reply.error:
             return reply
-        if reply.value == Error.ERNR and retry:
+
+        if retry and reply.value in [Error.ERNR, Error.ETIMEOUT]:
             if DEBUG: print("Error: {}. Retrying command.".format(e), file=sys.stderr)
             return self.execRawCommand(msg, retry=False)
-        if reply.value == Error.ETIMEOUT:
+        elif reply.value == Error.ETIMEOUT:
             raise CommunicationError(reply.value)
-
+        else
+            return reply
 
     def execCommand(self, command, flags=[], args=[]):
         if len(flags) > 0:
