@@ -85,7 +85,7 @@ class Worker(QtCore.QObject):
                 self.reportUI("Failed to decode volume value")
                 continue
 
-            if DEBUG: print("{}:{}:{}".format(timestamp, origin, volume), stderr)
+            if DEBUG: print("{}:{}:{}".format(timestamp, origin, volume), sys.stderr)
             self.csv.writerow({'datetime' : timestamp,
                                'syringe'  : origin,
                                'volume'   : volume})
@@ -115,7 +115,7 @@ class Worker(QtCore.QObject):
         for i, s in self.syringes.copy().items():
             try:
                 dtype = s.readDeviceType()
-                if DEBUG: print("Device: {}".format(dtype), stderr)
+                if DEBUG: print("Device: {}".format(dtype), sys.stderr)
             except Exception as e:
                 self.reportUI("Syringe {} error: {}".format(i, e))
                 del self.syringes[i]
@@ -157,7 +157,7 @@ class Worker(QtCore.QObject):
     def checkBase(self):
         try:
             dtype = self.base.readDeviceType()
-            if DEBUG: print("Device: {}".format(dtype), stderr)
+            if DEBUG: print("Device: {}".format(dtype), sys.stderr)
         except Exception as e:
             self.reportUI("Base error: {}".format(e))
             return False
@@ -174,7 +174,7 @@ class Worker(QtCore.QObject):
             return True
 
     def reportUI(self, err):
-        if DEBUG: print(err, stderr)
+        if DEBUG: print(err, sys.stderr)
         self.sigError.emit(str(err))
 
 
