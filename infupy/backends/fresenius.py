@@ -122,7 +122,7 @@ class FreseniusSyringe(Syringe):
             return self.execRawCommand(msg, retry=False)
         elif reply.value == Error.ETIMEOUT:
             raise CommunicationError(reply.value)
-        else
+        else:
             return reply
 
     def execCommand(self, command, flags=[], args=[]):
