@@ -70,7 +70,7 @@ def extractRate(msg):
     else:
         raise ValueError
     n = int(vol, 16)
-    return (10**-1 * n)
+    return round(10**-1 * n, 1)
 
 def extractVolume(msg):
     vals = parseVars(msg)
@@ -79,7 +79,7 @@ def extractVolume(msg):
     else:
         raise ValueError
     n = int(vol, 16)
-    return (10**-3 * n)
+    return round(10**-3 * n, 3)
 
 class FreseniusSyringe(Syringe):
     def __init__(self, comm, index):
