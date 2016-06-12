@@ -118,7 +118,7 @@ class FreseniusSyringe(Syringe):
             return reply
 
         if retry and reply.value in [Error.ERNR, Error.ETIMEOUT]:
-            if DEBUG: print("Error: {}. Retrying command.".format(e), file=sys.stderr)
+            print("Error: {}. Retrying command.".format(e), file=sys.stderr)
             return self.execRawCommand(msg, retry=False)
         elif reply.value == Error.ETIMEOUT:
             raise CommunicationError(reply.value)
@@ -265,6 +265,7 @@ class FreseniusComm(serial.Serial):
         self.__txthread.start()
 
     if DEBUG:
+        # Write all data exchange to file
         def read(self, size=1):
             data = super(FreseniusComm, self).read(size)
             self.logfile.write(data)
@@ -300,7 +301,7 @@ class RecvThread(threading.Thread):
         try:
             self.__cmdq.task_done()
         except ValueError as e:
-            if DEBUG: print("State machine got confused: " + str(e), file=sys.stderr)
+            print("State machine got confused: " + str(e), file=sys.stderr)
 
     def enqueueReply(reply):
             self.__recvq.put(reply)
@@ -318,7 +319,7 @@ class RecvThread(threading.Thread):
             except ValueError:
                 error = Error.EUNDEF
             self.enqueueReply(Reply(origin, error, error = True))
-            if DEBUG: print("Command error: {}".format(error), file=sys.stderr)
+            print("Command error: {}".format(error), file=sys.stderr)
 
         elif status is ReplyStatus.correct:
             # This is a reply to one of our commands
@@ -349,8 +350,8 @@ class RecvThread(threading.Thread):
                     error = Error(c)
                 except:
                     error = Error.EUNDEF
-                print("Protocol error: {}".format(error), file=sys.stderr)
                 self.enqueueReply(Reply(error = True, value = error))
+                print("Protocol error: {}".format(error), file=sys.stderr)
                 insideNAKerr = False
             elif c == ACK:
                 pass
@@ -366,7 +367,7 @@ class RecvThread(threading.Thread):
             elif insideCommand:
                 self.__buffer += c
             else:
-                if DEBUG: print("Unexpected char received: {}".format(c), file=sys.stderr)
+                print("Unexpected char received: {}".format(c), file=sys.stderr)
 
 
 class SendThread(threading.Thread):
