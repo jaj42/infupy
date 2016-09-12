@@ -1,3 +1,6 @@
+def printerr(msg, e=''):
+    print(msg.format(e), file=sys.stderr)
+
 class CommunicationError(Exception):
     def __str__(self):
         return "Communication error: {}".format(self.args)

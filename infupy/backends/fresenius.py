@@ -118,7 +118,7 @@ class FreseniusSyringe(Syringe):
             return reply
 
         if retry and reply.value in [Error.ERNR, Error.ETIMEOUT]:
-            print("Error: {}. Retrying command.".format(e), file=sys.stderr)
+            printerr("Error: {}. Retrying command.", reply.value)
             return self.execRawCommand(msg, retry=False)
         elif reply.value == Error.ETIMEOUT:
             raise CommunicationError(reply.value)
@@ -301,7 +301,7 @@ class RecvThread(threading.Thread):
         try:
             self.__cmdq.task_done()
         except ValueError as e:
-            print("State machine got confused: " + str(e), file=sys.stderr)
+            printerr("State machine got confused: {}", e)
 
     def enqueueReply(reply):
             self.__recvq.put(reply)
@@ -319,7 +319,7 @@ class RecvThread(threading.Thread):
             except ValueError:
                 error = Error.EUNDEF
             self.enqueueReply(Reply(origin, error, error = True))
-            print("Command error: {}".format(error), file=sys.stderr)
+            printerr("Command error: {}", error)
 
         elif status is ReplyStatus.correct:
             # This is a reply to one of our commands
@@ -351,7 +351,7 @@ class RecvThread(threading.Thread):
                 except:
                     error = Error.EUNDEF
                 self.enqueueReply(Reply(error = True, value = error))
-                print("Protocol error: {}".format(error), file=sys.stderr)
+                printerr("Protocol error: {}", error)
                 insideNAKerr = False
             elif c == ACK:
                 pass
@@ -367,7 +367,7 @@ class RecvThread(threading.Thread):
             elif insideCommand:
                 self.__buffer += c
             else:
-                print("Unexpected char received: {}".format(c), file=sys.stderr)
+                printerr("Unexpected char received: {}", ord(c))
 
 
 class SendThread(threading.Thread):
