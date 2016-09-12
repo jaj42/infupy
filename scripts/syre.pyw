@@ -114,7 +114,6 @@ class Worker(QtCore.QObject):
         self.logLoop() # Call once more to empty the queue.
         if not self.shouldrun:
             self.csvfd.close()
-            self.reportUI("Closed file: {}".format(filepath))
 
     def checkSyringes(self):
         for i, s in self.syringes.copy().items():

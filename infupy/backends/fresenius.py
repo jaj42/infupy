@@ -303,7 +303,7 @@ class RecvThread(threading.Thread):
         except ValueError as e:
             printerr("State machine got confused: {}", e)
 
-    def enqueueReply(reply):
+    def enqueueReply(self, reply):
             self.__recvq.put(reply)
             self.allowNewCmd()
 
