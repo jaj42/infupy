@@ -21,7 +21,7 @@ class Worker(QtCore.QObject):
         self.base = None
         self.logger = None
         self.syringes = dict()
-        self.csvfd = None
+        self.csvfd = io.IOBase()
         self.csv = None
         self.shouldrun = False
 
@@ -96,6 +96,7 @@ class Worker(QtCore.QObject):
         filename = time.strftime('%Y%m%d-%H%M.csv')
         filepath = os.path.join(self.destfolder, filename)
         if not self.csvfd.writable():
+            self.csvfd.close()
             self.csvfd = open(filepath, 'w', newline='')
             self.reportUI("Opened file: {}".format(filepath))
             self.csv = csv.DictWriter(self.csvfd, fieldnames = ['datetime', 'syringe', 'volume'])
