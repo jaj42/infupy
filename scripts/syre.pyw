@@ -21,7 +21,7 @@ class Worker(QtCore.QObject):
         self.base = None
         self.logger = None
         self.syringes = dict()
-        self.csvfd = io.IOBase() # ensure close() method is present.
+        self.csvfd = None
         self.csv = None
         self.shouldrun = False
 
@@ -54,12 +54,13 @@ class Worker(QtCore.QObject):
             self.onDisconnected()
             return
 
-        if not self.checkSerial(): self.connectSerial()
+        if not self.checkSerial():
+            self.connectSerial()
         if not self.checkBase():
-            self.onDisconnected()
             if self.connectBase():
                 self.onConnected()
             else:
+                self.onDisconnected()
                 return
         self.checkSyringes()
         self.attachNewSyringes()
@@ -85,7 +86,7 @@ class Worker(QtCore.QObject):
                 self.reportUI("Failed to decode volume value")
                 continue
 
-            if DEBUG: print("{}:{}:{}".format(timestamp, origin, volume), sys.stderr)
+            if DEBUG: print("{}:{}:{}".format(timestamp, origin, volume), file=sys.stderr)
             self.csv.writerow({'datetime' : timestamp,
                                'syringe'  : origin,
                                'volume'   : volume})
@@ -94,11 +95,12 @@ class Worker(QtCore.QObject):
         self.sigConnected.emit()
         filename = time.strftime('%Y%m%d-%H%M.csv')
         filepath = os.path.join(self.destfolder, filename)
-        self.csvfd = open(filepath, 'w', newline='')
-        self.reportUI("Opened file: {}".format(filepath))
-        self.csv = csv.DictWriter(self.csvfd, fieldnames = ['datetime', 'syringe', 'volume'])
-        self.csv.writeheader()
-        self.logtimer.start(500) # .5 seconds
+        if not self.csvfd.writable():
+            self.csvfd = open(filepath, 'w', newline='')
+            self.reportUI("Opened file: {}".format(filepath))
+            self.csv = csv.DictWriter(self.csvfd, fieldnames = ['datetime', 'syringe', 'volume'])
+            self.csv.writeheader()
+        self.logtimer.start(1000) # 1 second
 
     def onDisconnected(self):
         self.sigDisconnected.emit()
@@ -109,13 +111,15 @@ class Worker(QtCore.QObject):
         # Stop csv logging
         self.logtimer.stop()
         self.logLoop() # Call once more to empty the queue.
-        self.csvfd.close()
+        if not self.shouldrun:
+            self.csvfd.close()
+            self.reportUI("Closed file: {}".format(filepath))
 
     def checkSyringes(self):
         for i, s in self.syringes.copy().items():
             try:
                 dtype = s.readDeviceType()
-                if DEBUG: print("Device: {}".format(dtype), sys.stderr)
+                if DEBUG: print("Device: {}".format(dtype), file=sys.stderr)
             except Exception as e:
                 self.reportUI("Syringe {} error: {}".format(i, e))
                 del self.syringes[i]
@@ -157,7 +161,7 @@ class Worker(QtCore.QObject):
     def checkBase(self):
         try:
             dtype = self.base.readDeviceType()
-            if DEBUG: print("Device: {}".format(dtype), sys.stderr)
+            if DEBUG: print("Device: {}".format(dtype), file=sys.stderr)
         except Exception as e:
             self.reportUI("Base error: {}".format(e))
             return False
@@ -174,7 +178,7 @@ class Worker(QtCore.QObject):
             return True
 
     def reportUI(self, err):
-        if DEBUG: print(err, sys.stderr)
+        if DEBUG: print(err, file=sys.stderr)
         self.sigError.emit(str(err))
 
 
