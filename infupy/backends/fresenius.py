@@ -282,8 +282,6 @@ class FreseniusComm(serial.Serial):
         self.__rxthread.join()
         super(FreseniusComm, self).close()
 
-    def __del__(self):
-        self.close()
 
 class RecvThread(threading.Thread):
     def __init__(self, comm, recvq, cmdq, txlock):
@@ -351,9 +349,7 @@ class RecvThread(threading.Thread):
         # can happen any time and we need to reply quickly.
         insideNAKerr = False
         insideCommand = False
-        while True:
-            if self.stopexec:
-                break
+        while not self.stopexec:
             c = self.__comm.read(1)
             if c == ENQ:
                 self.sendKeepalive()
@@ -391,9 +387,7 @@ class SendThread(threading.Thread):
         self.__txlock = txlock
 
     def run(self):
-        while True:
-            if self.stopexec:
-                break
+        while not self.stopexec:
             msg = self.__cmdq.get()
 
             with self.__txlock:

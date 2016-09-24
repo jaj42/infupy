@@ -15,7 +15,8 @@ class Worker(QtCore.QObject):
 
     def __init__(self):
         super(Worker, self).__init__()
-        self.destfolder = os.path.expanduser("~")
+        self.oldconnstate = False
+        self.destfolder = ""
         self.port = ""
         self.conn = None
         self.base = None
@@ -55,7 +56,8 @@ class Worker(QtCore.QObject):
             return
 
         if not self.checkSerial():
-            self.connectSerial()
+            if not self.connectSerial():
+                return
         if not self.checkBase():
             if self.connectBase():
                 self.onConnected()
@@ -92,7 +94,11 @@ class Worker(QtCore.QObject):
                                'volume'   : volume})
 
     def onConnected(self):
-        self.sigConnected.emit()
+        if self.oldconnstate == True:
+            return # already connected
+        else:
+            self.oldconnstate = True
+            self.sigConnected.emit()
         filename = time.strftime('%Y%m%d-%H%M.csv')
         filepath = os.path.join(self.destfolder, filename)
         if not self.csvfd.writable():
@@ -104,17 +110,23 @@ class Worker(QtCore.QObject):
         self.logtimer.start(1000) # 1 second
 
     def onDisconnected(self):
-        self.sigDisconnected.emit()
+        if self.oldconnstate == False:
+            return # already disconnected
+        else:
+            self.oldconnstate = False
+            self.sigDisconnected.emit()
         # Clean up
         self.syringes = dict()
         self.base = None
         self.sigUpdateSyringes.emit([])
         # Stop csv logging
         self.logtimer.stop()
-        self.logLoop() # Call once more to empty the queue.
-        if not self.shouldrun:
+        # Call once more to empty the queue
+        self.logLoop()
+        self.csvfd.close()
+        if not self.shouldrun and self.conn is not None:
             self.conn.close()
-            self.csvfd.close()
+            self.conn = None
 
     def checkSyringes(self):
         for i, s in self.syringes.copy().items():
@@ -122,7 +134,7 @@ class Worker(QtCore.QObject):
                 dtype = s.readDeviceType()
                 if DEBUG: print("Device: {}".format(dtype), file=sys.stderr)
             except Exception as e:
-                self.reportUI("Syringe {} error: {}".format(i, e))
+                self.reportUI("Syringe {} lost: {}".format(i, e))
                 del self.syringes[i]
             else:
                 # Register volume event in case the syringe got reset.
@@ -232,7 +244,10 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         self.btnStop.clicked.connect(self.__worker.stop)
 
     def browsefolder(self):
-        destfolder = QtGui.QFileDialog.getExistingDirectory(self, "Choose destination Folder")
+        folderpreset = self.txtFolder.text()
+        if not os.path.isdir(folderpreset):
+            folderpreset = os.path.expanduser("~")
+        destfolder = QtGui.QFileDialog.getExistingDirectory(self, "Choose destination Folder", folderpreset)
         self.txtFolder.setText(destfolder)
 
     def showStatusError(self, errstr):
