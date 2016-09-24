@@ -113,6 +113,7 @@ class Worker(QtCore.QObject):
         self.logtimer.stop()
         self.logLoop() # Call once more to empty the queue.
         if not self.shouldrun:
+            self.conn.close()
             self.csvfd.close()
 
     def checkSyringes(self):
@@ -141,6 +142,8 @@ class Worker(QtCore.QObject):
             self.reportUI("Attach syringe error: {}".format(e))
 
     def checkSerial(self):
+        if self.conn is None:
+            return False
         try:
             self.conn.name
         except Exception as e:
@@ -159,6 +162,8 @@ class Worker(QtCore.QObject):
             return True
 
     def checkBase(self):
+        if self.base is None:
+            return False
         try:
             dtype = self.base.readDeviceType()
             if DEBUG: print("Device: {}".format(dtype), file=sys.stderr)
@@ -180,6 +185,18 @@ class Worker(QtCore.QObject):
     def reportUI(self, err):
         if DEBUG: print(err, file=sys.stderr)
         self.sigError.emit(str(err))
+
+    def cleanup(self):
+        self.logtimer.stop()
+        self.conntimer.stop()
+        for _, s in self.syringes.items():
+            s.disconnect()
+        if self.base is not None:
+            self.base.disconnect()
+        if self.conn is not None:
+            self.conn.close()
+        if self.csvfd is not None:
+            self.csvfd.close()
 
 
 class MainUi(QtGui.QMainWindow, Ui_wndMain):
@@ -236,6 +253,13 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         for modid in slist:
             liststr = "Seringue {}".format(modid)
             self.lstSyringes.addItem(liststr)
+
+    def closeEvent(self, event):
+        # Wrap it all up
+        if DEBUG: print("Cleaning up before exiting.", file=sys.stderr)
+        self.__worker.cleanup()
+        self.__workerthread.quit()
+        event.accept()
 
 
 if __name__ == '__main__':
