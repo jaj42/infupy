@@ -275,10 +275,20 @@ class FreseniusComm(serial.Serial):
             self.logfile.write(data)
             return super(FreseniusComm, self).write(data)
 
+    def close(self, *args, **kwargs):
+        self.__txthread.stopexec = True
+        self.__rxthread.stopexec = True
+        self.__txthread.join()
+        self.__rxthread.join()
+        super(FreseniusComm, self).close()
+
+    def __del__(self):
+        self.close()
 
 class RecvThread(threading.Thread):
     def __init__(self, comm, recvq, cmdq, txlock):
         super(RecvThread, self).__init__()
+        self.stopexec = False
         self.__comm   = comm
         self.__recvq  = recvq
         self.__cmdq   = cmdq
@@ -342,6 +352,8 @@ class RecvThread(threading.Thread):
         insideNAKerr = False
         insideCommand = False
         while True:
+            if self.stopexec:
+                break
             c = self.__comm.read(1)
             if c == ENQ:
                 self.sendKeepalive()
@@ -373,12 +385,15 @@ class RecvThread(threading.Thread):
 class SendThread(threading.Thread):
     def __init__(self, comm, cmdq, txlock):
         super(SendThread, self).__init__()
+        self.stopexec = False
         self.__comm   = comm
         self.__cmdq   = cmdq
         self.__txlock = txlock
 
     def run(self):
         while True:
+            if self.stopexec:
+                break
             msg = self.__cmdq.get()
 
             with self.__txlock:
@@ -398,7 +413,7 @@ ENQ = b'\x05'
 DC4 = b'\x14'
 
 # Allowed command characters
-#CHROK = map(chr, range(0x20 , 0x7E))
+#CHROK = list(map(chr, range(0x20 , 0x7E)))
 
 class Reply(object):
     __slots__ = ('origin', 'value', 'error')
