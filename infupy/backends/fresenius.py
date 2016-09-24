@@ -275,7 +275,7 @@ class FreseniusComm(serial.Serial):
             self.logfile.write(data)
             return super(FreseniusComm, self).write(data)
 
-    def close(self, *args, **kwargs):
+    def close(self):
         self.__txthread.stopexec = True
         self.__rxthread.stopexec = True
         self.__txthread.join()
