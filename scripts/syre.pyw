@@ -16,7 +16,7 @@ class Worker(QtCore.QObject):
     def __init__(self):
         super(Worker, self).__init__()
         self.oldconnstate = False
-        self.destfolder = ""
+        self.destfolder = os.path.expanduser("~")
         self.port = ""
         self.conn = None
         self.base = None
