@@ -258,10 +258,7 @@ class FreseniusComm(serial.Serial):
                                      cmdq   = self.cmdq,
                                      txlock = self.__txlock)
 
-        self.__rxthread.daemon = True
         self.__rxthread.start()
-
-        self.__txthread.daemon = True
         self.__txthread.start()
 
     if DEBUG:
@@ -341,32 +338,33 @@ class RecvThread(threading.Thread):
         # can happen any time and we need to reply quickly.
         insideNAKerr = False
         insideCommand = False
-        c = self.__comm.read(1)
-        if c == ENQ:
-            self.sendKeepalive()
-        elif insideNAKerr:
-            try:
-                error = Error(c)
-            except:
-                error = Error.EUNDEF
-            self.enqueueReply(Reply(error = True, value = error))
-            printerr("Protocol error: {}", error)
-            insideNAKerr = False
-        elif c == ACK:
-            pass
-        elif c == STX:
-            # Start of command marker
-            insideCommand = True
-        elif c == ETX:
-            # End of command marker
-            insideCommand = False
-            self.processRxBuffer()
-        elif c == NAK:
-            insideNAKerr = True
-        elif insideCommand:
-            self.__buffer += c
-        else:
-            printerr("Unexpected char received: {}", ord(c))
+        while True:
+            c = self.__comm.read(1)
+            if c == ENQ:
+                self.sendKeepalive()
+            elif insideNAKerr:
+                try:
+                    error = Error(c)
+                except:
+                    error = Error.EUNDEF
+                self.enqueueReply(Reply(error = True, value = error))
+                printerr("Protocol error: {}", error)
+                insideNAKerr = False
+            elif c == ACK:
+                pass
+            elif c == STX:
+                # Start of command marker
+                insideCommand = True
+            elif c == ETX:
+                # End of command marker
+                insideCommand = False
+                self.processRxBuffer()
+            elif c == NAK:
+                insideNAKerr = True
+            elif insideCommand:
+                self.__buffer += c
+            else:
+                printerr("Unexpected char received: {}", ord(c))
 
 
 class SendThread(threading.Thread):
@@ -377,10 +375,10 @@ class SendThread(threading.Thread):
         self.__txlock = txlock
 
     def run(self):
-        msg = self.__cmdq.get()
-
-        with self.__txlock:
-            self.__comm.write(msg)
+        while True:
+            msg = self.__cmdq.get()
+            with self.__txlock:
+                self.__comm.write(msg)
 
 
 # Frame markers
