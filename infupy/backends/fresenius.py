@@ -363,6 +363,8 @@ class RecvThread(threading.Thread):
                 insideNAKerr = True
             elif insideCommand:
                 self.__buffer += c
+            elif c == '':
+                pass # comm got closed
             else:
                 printerr("Unexpected char received: {}", ord(c))
 
