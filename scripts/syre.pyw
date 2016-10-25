@@ -198,6 +198,7 @@ class Worker(QtCore.QObject):
         if DEBUG: print(err, file=sys.stderr)
         self.sigError.emit(str(err))
 
+    @QtCore.pyqtSlot(str)
     def cleanup(self):
         self.logtimer.stop()
         self.conntimer.stop()
@@ -212,6 +213,8 @@ class Worker(QtCore.QObject):
 
 
 class MainUi(QtGui.QMainWindow, Ui_wndMain):
+    sigCleanup = QtCore.pyqtSignal()
+
     def __init__(self, parent = None):
         super(MainUi, self).__init__(parent = parent)
         self.setupUi(self)
@@ -226,6 +229,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         self.__worker = Worker()
 
         # Worker callbacks and signals
+        self.sigCleanup.connect(self.__worker.cleanup)
         self.comboCom.editTextChanged.connect(self.__worker.setport)
         self.__worker.setport(self.comboCom.currentText())
 
@@ -272,7 +276,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
     def closeEvent(self, event):
         # Wrap it all up
         if DEBUG: print("Cleaning up before exiting.", file=sys.stderr)
-        self.__worker.cleanup()
+        self.sigCleanup.emit()
         self.__workerthread.quit()
         event.accept()
 
