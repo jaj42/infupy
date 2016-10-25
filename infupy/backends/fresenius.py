@@ -242,8 +242,8 @@ class FreseniusComm(serial.Serial):
         if DEBUG:
             self.logfile = open('fresenius_raw.log', 'wb')
 
-        self.recvq = queue.LifoQueue()
-        self.cmdq  = queue.Queue(maxsize = 10)
+        self.recvq  = queue.LifoQueue()
+        self.cmdq   = queue.Queue(maxsize = 10)
         self.eventq = queue.Queue()
 
         # Write lock to make sure only one source writes at a time
@@ -275,18 +275,10 @@ class FreseniusComm(serial.Serial):
             self.logfile.write(data)
             return super(FreseniusComm, self).write(data)
 
-    def close(self):
-        self.__txthread.stopexec = True
-        self.__rxthread.stopexec = True
-        self.__txthread.join()
-        self.__rxthread.join()
-        super(FreseniusComm, self).close()
-
 
 class RecvThread(threading.Thread):
     def __init__(self, comm, recvq, cmdq, txlock):
-        super(RecvThread, self).__init__()
-        self.stopexec = False
+        super(RecvThread, self).__init__(daemon=True)
         self.__comm   = comm
         self.__recvq  = recvq
         self.__cmdq   = cmdq
@@ -349,49 +341,46 @@ class RecvThread(threading.Thread):
         # can happen any time and we need to reply quickly.
         insideNAKerr = False
         insideCommand = False
-        while not self.stopexec:
-            c = self.__comm.read(1)
-            if c == ENQ:
-                self.sendKeepalive()
-            elif insideNAKerr:
-                try:
-                    error = Error(c)
-                except:
-                    error = Error.EUNDEF
-                self.enqueueReply(Reply(error = True, value = error))
-                printerr("Protocol error: {}", error)
-                insideNAKerr = False
-            elif c == ACK:
-                pass
-            elif c == STX:
-                # Start of command marker
-                insideCommand = True
-            elif c == ETX:
-                # End of command marker
-                insideCommand = False
-                self.processRxBuffer()
-            elif c == NAK:
-                insideNAKerr = True
-            elif insideCommand:
-                self.__buffer += c
-            else:
-                printerr("Unexpected char received: {}", ord(c))
+        c = self.__comm.read(1)
+        if c == ENQ:
+            self.sendKeepalive()
+        elif insideNAKerr:
+            try:
+                error = Error(c)
+            except:
+                error = Error.EUNDEF
+            self.enqueueReply(Reply(error = True, value = error))
+            printerr("Protocol error: {}", error)
+            insideNAKerr = False
+        elif c == ACK:
+            pass
+        elif c == STX:
+            # Start of command marker
+            insideCommand = True
+        elif c == ETX:
+            # End of command marker
+            insideCommand = False
+            self.processRxBuffer()
+        elif c == NAK:
+            insideNAKerr = True
+        elif insideCommand:
+            self.__buffer += c
+        else:
+            printerr("Unexpected char received: {}", ord(c))
 
 
 class SendThread(threading.Thread):
     def __init__(self, comm, cmdq, txlock):
-        super(SendThread, self).__init__()
-        self.stopexec = False
+        super(SendThread, self).__init__(daemon=True)
         self.__comm   = comm
         self.__cmdq   = cmdq
         self.__txlock = txlock
 
     def run(self):
-        while not self.stopexec:
-            msg = self.__cmdq.get()
+        msg = self.__cmdq.get()
 
-            with self.__txlock:
-                self.__comm.write(msg)
+        with self.__txlock:
+            self.__comm.write(msg)
 
 
 # Frame markers
