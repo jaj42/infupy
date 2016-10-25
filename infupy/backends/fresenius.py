@@ -83,7 +83,7 @@ def extractVolume(msg):
 
 class FreseniusSyringe(Syringe):
     def __init__(self, comm, index):
-        super(FreseniusSyringe, self).__init__()
+        super().__init__()
         if not isinstance(comm, FreseniusComm):
             self._comm = None
             raise CommunicationError("Serial link error")
@@ -177,13 +177,13 @@ class FreseniusSyringe(Syringe):
 
     # Spontaneous variable handling
     def registerEvent(self, event):
-        super(FreseniusSyringe, self).registerEvent(event)
+        super().registerEvent(event)
         reply = self.execCommand(Command.enspont, flags=self._events)
         if reply.error:
             raise CommandError(reply.value)
 
     def unregisterEvent(self, event):
-        super(FreseniusSyringe, self).unregisterEvent(event)
+        super().unregisterEvent(event)
         reply = self.execCommand(Command.disspont)
         if reply.error:
             raise CommandError(reply.value)
@@ -192,7 +192,7 @@ class FreseniusSyringe(Syringe):
             raise CommandError(reply.value)
 
     def clearEvents(self):
-        super(FreseniusSyringe, self).clearEvents()
+        super().clearEvents()
         reply = self.execCommand(Command.disspont)
         if reply.error:
             raise CommandError(reply.value)
@@ -204,12 +204,12 @@ class FreseniusSyringe(Syringe):
 
 class FreseniusBase(FreseniusSyringe):
     def __init__(self, comm, wait = True):
-        super(FreseniusBase, self).__init__(comm, 0)
+        super().__init__(comm, 0)
         if wait:
             time.sleep(1)
 
     def __del__(self):
-        super(FreseniusBase, self).__del__()
+        super().__del__()
         try:
             self._comm.cmdq.clear()
         except AttributeError:
@@ -234,7 +234,7 @@ class FreseniusBase(FreseniusSyringe):
 class FreseniusComm(serial.Serial):
     def __init__(self, port, baudrate = 19200):
         # These settings come from Fresenius documentation
-        super(FreseniusComm, self).__init__(port     = port,
+        super().__init__(port     = port,
                                             baudrate = baudrate,
                                             bytesize = serial.SEVENBITS,
                                             parity   = serial.PARITY_EVEN,
@@ -264,18 +264,18 @@ class FreseniusComm(serial.Serial):
     if DEBUG:
         # Write all data exchange to file
         def read(self, size=1):
-            data = super(FreseniusComm, self).read(size)
+            data = super().read(size)
             self.logfile.write(data)
             return data
 
         def write(self, data):
             self.logfile.write(data)
-            return super(FreseniusComm, self).write(data)
+            return super().write(data)
 
 
 class RecvThread(threading.Thread):
     def __init__(self, comm, recvq, cmdq, txlock):
-        super(RecvThread, self).__init__(daemon=True)
+        super().__init__(daemon=True)
         self.__comm   = comm
         self.__recvq  = recvq
         self.__cmdq   = cmdq
@@ -371,7 +371,7 @@ class RecvThread(threading.Thread):
 
 class SendThread(threading.Thread):
     def __init__(self, comm, cmdq, txlock):
-        super(SendThread, self).__init__(daemon=True)
+        super().__init__(daemon=True)
         self.__comm   = comm
         self.__cmdq   = cmdq
         self.__txlock = txlock
