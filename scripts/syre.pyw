@@ -95,10 +95,11 @@ class Worker(QtCore.QObject):
 
     def onConnected(self):
         if self.oldconnstate == True:
+            if DEBUG: print("Already connected", file=sys.stderr)
             return # already connected
-        else:
-            self.oldconnstate = True
-            self.sigConnected.emit()
+
+        self.oldconnstate = True
+        self.sigConnected.emit()
         filename = time.strftime('%Y%m%d-%H%M.csv')
         filepath = os.path.join(self.destfolder, filename)
         if not self.csvfd.writable():
@@ -111,10 +112,11 @@ class Worker(QtCore.QObject):
 
     def onDisconnected(self):
         if self.oldconnstate == False:
+            if DEBUG: print("Already disconnected", file=sys.stderr)
             return # already disconnected
-        else:
-            self.oldconnstate = False
-            self.sigDisconnected.emit()
+
+        self.oldconnstate = False
+        self.sigDisconnected.emit()
         # Clean up
         self.syringes = dict()
         self.base = None
@@ -229,7 +231,10 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         self.__worker = Worker()
 
         # Worker callbacks and signals
+        self.btnStart.clicked.connect(self.__worker.start)
+        self.btnStop.clicked.connect(self.__worker.stop)
         self.sigCleanup.connect(self.__worker.cleanup)
+        self.txtFolder.textChanged.connect(self.__worker.setfolder)
         self.comboCom.editTextChanged.connect(self.__worker.setport)
         self.__worker.setport(self.comboCom.currentText())
 
@@ -242,10 +247,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         self.__workerthread.start()
 
         # Continue UI initialization
-        self.txtFolder.textChanged.connect(self.__worker.setfolder)
         self.btnBrowse.clicked.connect(self.browsefolder)
-        self.btnStart.clicked.connect(self.__worker.start)
-        self.btnStop.clicked.connect(self.__worker.stop)
 
     def browsefolder(self):
         folderpreset = self.txtFolder.text()
