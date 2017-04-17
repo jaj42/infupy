@@ -235,10 +235,10 @@ class FreseniusComm(serial.Serial):
     def __init__(self, port, baudrate = 19200):
         # These settings come from Fresenius documentation
         super().__init__(port     = port,
-                                            baudrate = baudrate,
-                                            bytesize = serial.SEVENBITS,
-                                            parity   = serial.PARITY_EVEN,
-                                            stopbits = serial.STOPBITS_ONE)
+                         baudrate = baudrate,
+                         bytesize = serial.SEVENBITS,
+                         parity   = serial.PARITY_EVEN,
+                         stopbits = serial.STOPBITS_ONE)
         if DEBUG:
             self.logfile = open('fresenius_raw.log', 'wb')
 
