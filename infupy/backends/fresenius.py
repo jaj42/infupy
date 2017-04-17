@@ -247,16 +247,8 @@ class FreseniusComm(serial.Serial):
         self.eventq = queue.Queue()
 
         # Write lock to make sure only one source writes at a time
-        self.__txlock = threading.Lock()
-
-        self.__rxthread = RecvThread(comm   = self,
-                                     recvq  = self.recvq,
-                                     cmdq   = self.cmdq,
-                                     txlock = self.__txlock)
-
-        self.__txthread = SendThread(comm   = self,
-                                     cmdq   = self.cmdq,
-                                     txlock = self.__txlock)
+        self.__rxthread = RecvThread(self)
+        self.__txthread = SendThread(self)
 
         self.__rxthread.start()
         self.__txthread.start()
@@ -274,25 +266,16 @@ class FreseniusComm(serial.Serial):
 
 
 class RecvThread(threading.Thread):
-    def __init__(self, comm, recvq, cmdq, txlock):
+    def __init__(self, comm, recvq, cmdq):
         super().__init__(daemon=True)
         self.__comm   = comm
-        self.__recvq  = recvq
-        self.__cmdq   = cmdq
-        self.__txlock = txlock
+        self.__recvq  = comm.recvq
+        self.__cmdq   = comm.cmdq
+        self.__eventq = comm.eventq
         self.__buffer = b""
 
-    def sendKeepalive(self):
-        with self.__txlock:
-            self.__comm.write(DC4)
-
-    def sendACK(self):
-        with self.__txlock:
-            self.__comm.write(ACK)
-
     def sendSpontReply(self, origin, status):
-        with self.__txlock:
-            self.__comm.write(genFrame(origin + status.value))
+        self.__cmdq.put(genFrame(origin + status.value))
 
     def allowNewCmd(self):
         try:
@@ -307,7 +290,8 @@ class RecvThread(threading.Thread):
     def processRxBuffer(self):
         status, origin, msg, check = parseReply(self.__buffer)
         self.__buffer = b""
-        self.sendACK()
+        # Send ACK
+        self.__cmdq.put(ACK)
 
         if status is ReplyStatus.incorrect:
             # Error condition
@@ -328,7 +312,7 @@ class RecvThread(threading.Thread):
             if origin is None or not origin.isdigit():
                 return
             iorigin = int(origin)
-            self.__comm.eventq.put((datetime.now(), iorigin, msg))
+            self.__eventq.put((datetime.now(), iorigin, msg))
 
         else:
             pass
@@ -341,7 +325,8 @@ class RecvThread(threading.Thread):
         while True:
             c = self.__comm.read(1)
             if c == ENQ:
-                self.sendKeepalive()
+                # Send keep-alive
+                self.__cmdq.put(DC4)
             elif insideNAKerr:
                 try:
                     error = Error(c)
@@ -370,17 +355,15 @@ class RecvThread(threading.Thread):
 
 
 class SendThread(threading.Thread):
-    def __init__(self, comm, cmdq, txlock):
+    def __init__(self, comm):
         super().__init__(daemon=True)
-        self.__comm   = comm
-        self.__cmdq   = cmdq
-        self.__txlock = txlock
+        self.__comm = comm
+        self.__cmdq = comm.cmdq
 
     def run(self):
         while True:
             msg = self.__cmdq.get()
-            with self.__txlock:
-                self.__comm.write(msg)
+            self.__comm.write(msg)
 
 
 # Frame markers
