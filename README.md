@@ -1,4 +1,5 @@
 # InfuPy
-InfuPy is a Python 3 library to control syringe pumps.
-InfuPy is currently in a *very* early stage of development.
-Do not use it for any real setting. It will fail. You have been warned.
+InfuPy is a Python library to control syringe pumps.
+InfuPy is currently in an early stage of development and is meant for
+testing and simulation purposes only. Do not use it on real patients
+under any circumstances.
