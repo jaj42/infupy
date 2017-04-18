@@ -284,8 +284,8 @@ class RecvThread(threading.Thread):
             printerr("State machine got confused: {}", e)
 
     def enqueueReply(self, reply):
-            self.__recvq.put(reply)
-            self.allowNewCmd()
+        self.__recvq.put(reply)
+        self.allowNewCmd()
 
     def processRxBuffer(self):
         status, origin, msg, check = parseReply(self.__buffer)
@@ -318,8 +318,6 @@ class RecvThread(threading.Thread):
             pass
 
     def run(self):
-        # We need to read byte by byte because ENQ/DC4 line monitoring
-        # can happen any time and we need to reply quickly.
         insideNAKerr = False
         insideCommand = False
         while True:
@@ -348,8 +346,8 @@ class RecvThread(threading.Thread):
                 insideNAKerr = True
             elif insideCommand:
                 self.__buffer += c
-            elif c == '':
-                pass # comm got closed
+            elif c == b'':
+                pass
             else:
                 printerr("Unexpected char received: {}", ord(c))
 
