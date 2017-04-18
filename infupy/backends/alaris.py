@@ -22,32 +22,13 @@ def genFrame(msg):
     return b'!' + msg + b'|' + genCheckSum(msg) + b'\r'
 
 def parseReply(rxbytes):
-    # The checksum is in the last two bytes
-    chk   = rxbytes[-2:]
-    rxmsg = rxbytes[:-2]
+    # The checksum is seperated by a pipe
+    rxmsg, chk = rxmsg.split(b'|', 1)
 
-    # Partition the string
-    splt   = rxmsg.split(b';', 1)
-    meta = splt[0]
-    if len(splt) > 1:
-        msg = splt[1]
-    else:
-        msg = None
+    # Fields are seperated by caret (HL7 style)
+    fields = rxmsg.split(b'^')
 
-    # Read meta data
-    if len(meta) > 1:
-        origin = meta[0:1]
-        status = meta[1:2]
-    else:
-        origin = None
-        status = meta[0:1]
-
-    try:
-        restat = ReplyStatus(status)
-    except ValueError:
-        restat = ReplyStatus.incorrect
-
-    return (restat, origin, msg, chk == genCheckSum(rxmsg))
+    return (fields, chk == genCheckSum(rxmsg))
 
 def parseVars(msg):
     ret = dict()
@@ -175,28 +156,6 @@ class AlarisSyringe(Syringe):
             raise CommandError(reply.value)
         return reply.value
 
-    # Spontaneous variable handling
-    def registerEvent(self, event):
-        super().registerEvent(event)
-        reply = self.execCommand(Command.enspont, flags=self._events)
-        if reply.error:
-            raise CommandError(reply.value)
-
-    def unregisterEvent(self, event):
-        super().unregisterEvent(event)
-        reply = self.execCommand(Command.disspont)
-        if reply.error:
-            raise CommandError(reply.value)
-        reply = self.execCommand(Command.enspont, flags=self._events)
-        if reply.error:
-            raise CommandError(reply.value)
-
-    def clearEvents(self):
-        super().clearEvents()
-        reply = self.execCommand(Command.disspont)
-        if reply.error:
-            raise CommandError(reply.value)
-
     @property
     def index(self):
         return int(self.__index)
@@ -210,23 +169,18 @@ class AlarisComm(serial.Serial):
                          parity   = serial.PARITY_NONE,
                          stopbits = serial.STOPBITS_ONE)
         if DEBUG:
-            self.logfile = open('fresenius_raw.log', 'wb')
+            self.logfile = open('alaris_raw.log', 'wb')
 
-        self.recvq  = queue.LifoQueue()
-        self.cmdq   = queue.Queue(maxsize = 10)
-        self.eventq = queue.Queue()
+        self.recvq = queue.LifoQueue()
+        self.cmdq  = queue.Queue(maxsize = 10)
 
         # Write lock to make sure only one source writes at a time
-        self.__txlock = threading.Lock()
+        self.__rxthread = RecvThread(comm  = self,
+                                     recvq = self.recvq,
+                                     cmdq  = self.cmdq)
 
-        self.__rxthread = RecvThread(comm   = self,
-                                     recvq  = self.recvq,
-                                     cmdq   = self.cmdq,
-                                     txlock = self.__txlock)
-
-        self.__txthread = SendThread(comm   = self,
-                                     cmdq   = self.cmdq,
-                                     txlock = self.__txlock)
+        self.__txthread = SendThread(comm  = self,
+                                     cmdq  = self.cmdq)
 
         self.__rxthread.start()
         self.__txthread.start()
@@ -243,25 +197,12 @@ class AlarisComm(serial.Serial):
             return super().write(data)
 
 class RecvThread(threading.Thread):
-    def __init__(self, comm, recvq, cmdq, txlock):
+    def __init__(self, comm, recvq, cmdq):
         super().__init__(daemon=True)
         self.__comm   = comm
         self.__recvq  = recvq
         self.__cmdq   = cmdq
-        self.__txlock = txlock
-        self.__buffer = b""
-
-    def sendKeepalive(self):
-        with self.__txlock:
-            self.__comm.write(DC4)
-
-    def sendACK(self):
-        with self.__txlock:
-            self.__comm.write(ACK)
-
-    def sendSpontReply(self, origin, status):
-        with self.__txlock:
-            self.__comm.write(genFrame(origin + status.value))
+        self.__buffer = b''
 
     def allowNewCmd(self):
         try:
@@ -269,99 +210,57 @@ class RecvThread(threading.Thread):
         except ValueError as e:
             printerr("State machine got confused: {}", e)
 
-    def enqueueReply(self, reply):
-            self.__recvq.put(reply)
-            self.allowNewCmd()
-
     def processRxBuffer(self):
-        status, origin, msg, check = parseReply(self.__buffer)
-        self.__buffer = b""
-        self.sendACK()
-
-        if status is ReplyStatus.incorrect:
-            # Error condition
-            try:
-                error = Error(msg)
-            except ValueError:
-                error = Error.EUNDEF
-            self.enqueueReply(Reply(origin, error, error = True))
-            printerr("Command error: {}", error)
-
-        elif status is ReplyStatus.correct:
-            # This is a reply to one of our commands
-            self.enqueueReply(Reply(origin, msg))
-
-        elif status is ReplyStatus.spont or status is ReplyStatus.spontadj:
-            # Spontaneously generated information. We need to acknowledge.
-            self.sendSpontReply(origin, status)
-            if origin is None or not origin.isdigit():
-                return
-            iorigin = int(origin)
-            self.__comm.eventq.put((datetime.now(), iorigin, msg))
-
-        else:
-            pass
+        fields, check = parseReply(self.__buffer)
+        self.__buffer = b''
+        reply = Reply(b' '.join(fields))
+        self.__recvq.put(reply)
+        self.allowNewCmd()
 
     def run(self):
-        # We need to read byte by byte because ENQ/DC4 line monitoring
-        # can happen any time and we need to reply quickly.
         insideNAKerr = False
         insideCommand = False
         while True:
             c = self.__comm.read(1)
-            if c == ENQ:
-                self.sendKeepalive()
-            elif insideNAKerr:
-                try:
-                    error = Error(c)
-                except:
-                    error = Error.EUNDEF
-                self.enqueueReply(Reply(error = True, value = error))
-                printerr("Protocol error: {}", error)
-                insideNAKerr = False
-            elif c == ACK:
-                pass
-            elif c == STX:
+            if c == ESC:
+                # Premature termination
+                self.__buffer = b""
+                insideCommand = False
+            elif c == b'!':
                 # Start of command marker
                 insideCommand = True
-            elif c == ETX:
+            elif c == b'\r':
                 # End of command marker
                 insideCommand = False
                 self.processRxBuffer()
-            elif c == NAK:
-                insideNAKerr = True
             elif insideCommand:
                 self.__buffer += c
-            elif c == '':
-                pass # comm got closed
+            elif c == b'':
+                pass
             else:
                 printerr("Unexpected char received: {}", ord(c))
 
 class SendThread(threading.Thread):
-    def __init__(self, comm, cmdq, txlock):
+    def __init__(self, comm, cmdq):
         super().__init__(daemon=True)
         self.__comm   = comm
         self.__cmdq   = cmdq
-        self.__txlock = txlock
 
     def run(self):
         while True:
             msg = self.__cmdq.get()
-            with self.__txlock:
-                self.__comm.write(msg)
+            self.__comm.write(msg)
 
 class Reply(object):
-    __slots__ = ('origin', 'value', 'error')
-    def __init__(self, origin = None, value = '', error = False):
-        if origin is None:
-            self.origin = 0
-        else:
-            self.origin = int(origin)
+    __slots__ = ('value', 'error')
+    def __init__(self, value = '', error = False):
         self.value = value
         self.error = error
 
     def __str__(self):
-        return "Alaris Reply: Origin={}, Value={}, Error={}".format(self.origin, self.value, self.error)
+        return "Alaris Reply: Value={}, Error={}".format(self.value, self.error)
+
+ESC = b'\x1B'
 
 class Command(Enum):
     connect      = b'DC'
