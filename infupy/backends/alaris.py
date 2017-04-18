@@ -30,50 +30,10 @@ def parseReply(rxbytes):
 
     return (fields, chk == genCheckSum(rxmsg))
 
-def parseVars(msg):
-    ret = dict()
-    if msg is None:
-        return ret
-    for repvar in msg.split(b';'):
-        idbytes = repvar[0:1]
-        value = repvar[1:]
-        try:
-            ident = VarId(idbytes)
-        except ValueError:
-            continue
-        ret[ident] = value
-    return ret
-
-def extractRate(msg):
-    vals = parseVars(msg)
-    if VarId.rate in vals.keys():
-        vol = vals[VarId.rate]
-    else:
-        raise ValueError
-    n = int(vol, 16)
-    return round(10**-1 * n, 1)
-
-def extractVolume(msg):
-    vals = parseVars(msg)
-    if VarId.volume in vals.keys():
-        vol = vals[VarId.volume]
-    else:
-        raise ValueError
-    n = int(vol, 16)
-    return round(10**-3 * n, 3)
-
-class AlarisSyringe(Syringe):
-    def __init__(self, comm, index):
+clas AlarisSyringe(Syringe):
+    def __init__(self, comm):
         super().__init__()
-        if not isinstance(comm, AlarisComm):
-            self._comm = None
-            raise CommunicationError("Serial link error")
-        else:
-            self._comm = comm
-        if isinstance(index, bytes):
-            self.__index = index
-        else:
-            self.__index = str(index).encode('ASCII')
+        self._comm = comm
         self.connect()
 
     def __del__(self):
@@ -81,29 +41,11 @@ class AlarisSyringe(Syringe):
             self.disconnect()
 
     def execRawCommand(self, msg, retry=True):
-        def qTimeout():
-            self._comm.recvq.put(Reply(error = True, value = Error.ETIMEOUT))
-            self._comm.cmdq.task_done()
-        
-        cmd = genFrame(self.__index + msg)
+        cmd = genFrame(msg)
         self._comm.cmdq.put(cmd)
-
-        # Time out after 1 second in case of communication failure.
-        t = threading.Timer(1, qTimeout)
-        t.start()
-        self._comm.cmdq.join()
-        t.cancel()
 
         reply = self._comm.recvq.get()
         if not reply.error:
-            return reply
-
-        if retry and reply.value in [Error.ERNR, Error.ETIMEOUT]:
-            printerr("Error: {}. Retrying command.", reply.value)
-            return self.execRawCommand(msg, retry=False)
-        elif reply.value == Error.ETIMEOUT:
-            raise CommunicationError(reply.value)
-        else:
             return reply
 
     def execCommand(self, command, flags=[], args=[]):
@@ -119,25 +61,22 @@ class AlarisSyringe(Syringe):
         return self.execRawCommand(commandraw)
 
     def connect(self):
-        return self.execCommand(Command.connect)
+        return True
 
     def disconnect(self):
-        try:
-            self.execCommand(Command.disconnect)
-        except CommunicationError:
-            pass # CommunicationError means we're already disconnected.
+        pass
 
     def readRate(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.rate])
         if reply.error:
             raise CommandError(reply.value)
-        return extractRate(reply.value)
+        return reply.value
 
     def readVolume(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.volume])
         if reply.error:
             raise CommandError(reply.value)
-        return extractVolume(reply.value)
+        return reply.value
 
     def readDrug(self):
         reply = self.execCommand(Command.readdrug)
@@ -155,10 +94,6 @@ class AlarisSyringe(Syringe):
         if reply.error:
             raise CommandError(reply.value)
         return reply.value
-
-    @property
-    def index(self):
-        return int(self.__index)
 
 class AlarisComm(serial.Serial):
     def __init__(self, port, baudrate = 38400):
@@ -243,8 +178,8 @@ class RecvThread(threading.Thread):
 class SendThread(threading.Thread):
     def __init__(self, comm, cmdq):
         super().__init__(daemon=True)
-        self.__comm   = comm
-        self.__cmdq   = cmdq
+        self.__comm = comm
+        self.__cmdq = cmdq
 
     def run(self):
         while True:
@@ -263,8 +198,6 @@ class Reply(object):
 ESC = b'\x1B'
 
 class Command(Enum):
-    connect      = b'DC'
-    disconnect   = b'FC'
     mode         = b'MO'
     reset        = b'RZ'
     off          = b'OF'
@@ -289,26 +222,6 @@ class Command(Enum):
     resetvolume  = b'RV'
     pressurelim  = b'PP'
     dynpressure  = b'PS'
-
-class VarId(Enum):
-    alarm   = b'a'
-    error   = b'e'
-    mode    = b'm'
-    rate    = b'd'
-    volume  = b'r'
-    bolrate = b'k'
-    bolvol  = b's'
-    nummods = b'i'
-    modules = b'b'
-
-class FixedVarId(Enum):
-    devicetype = b'b'
-
-class ReplyStatus(Enum):
-    correct   = b'C'
-    incorrect = b'I'
-    spont     = b'E'
-    spontadj  = b'M'
 
 # Errors
 @unique
