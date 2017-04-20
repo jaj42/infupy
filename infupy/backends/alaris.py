@@ -23,74 +23,92 @@ def genFrame(msg):
 
 def parseReply(rxbytes):
     # The checksum is seperated by a pipe
-    rxmsg, chk = rxmsg.split(b'|', 1)
+    rxmsg, chk = rxbytes.split(b'|', 1)
 
     # Fields are seperated by caret (HL7 style)
     fields = rxmsg.split(b'^')
 
-    return (fields, chk == genCheckSum(rxmsg))
+    ret = fields[1:]
+    return (ret, chk == genCheckSum(rxmsg))
 
-clas AlarisSyringe(Syringe):
+class Looper(threading.Thread):
+    def __init__(self, syringe, delay=0.5, stopevent=None):
+        super().__init__()
+        if stopevent is None:
+            stopevent = threading.Event()
+        self.stopped = stopevent
+        self.delay = delay
+        self.syringe = syringe
+
+    def run(self):
+        syringe = self.syringe
+        while not self.stopped.wait(self.delay):
+            syringe.execCommand(Command.remotectrl, [b'ENABLED', syringe.securitycode])
+            syringe.execCommand(Command.remotecfg, [b'ENABLED', syringe.securitycode])
+        # Disable on exit
+        syringe.execCommand(Command.remotectrl, [b'DISABLED'])
+        syringe.execCommand(Command.remotecfg, [b'DISABLED'])
+
+class AlarisSyringe(Syringe):
     def __init__(self, comm):
         super().__init__()
         self._comm = comm
-        self.connect()
+        self.__seccode = None
+        self.stopKeepalive = threading.Event()
+        self.launchKeepAlive()
 
     def __del__(self):
-        if self._comm is not None:
-            self.disconnect()
+        self.disconnect()
 
     def execRawCommand(self, msg, retry=True):
+        def qTimeout():
+            self._comm.recvq.put(Reply(error = True, value = Error.ETIMEOUT))
+            self._comm.cmdq.task_done()
+
         cmd = genFrame(msg)
         self._comm.cmdq.put(cmd)
 
-        reply = self._comm.recvq.get()
-        if not reply.error:
-            return reply
+        # Time out after 1 second in case of communication failure.
+        t = threading.Timer(1, qTimeout)
+        t.start()
+        self._comm.cmdq.join()
+        t.cancel()
 
-    def execCommand(self, command, flags=[], args=[]):
-        if len(flags) > 0:
-            flagvals = map(lambda x: x.value, flags)
-            flagbytes = b''.join(flagvals)
-            commandraw = command.value + b';' + flagbytes
-        elif len(args) > 0:
-            argbytes = b';'.join(args)
-            commandraw = command.value + b';' + argbytes
-        else:
-            commandraw = command.value
+        reply = self._comm.recvq.get()
+        return reply
+
+    def execCommand(self, command, fields=[]):
+        cmdfields = [command.value] + fields
+        commandraw = b'^'.join(cmdfields)
         return self.execRawCommand(commandraw)
 
     def connect(self):
         return True
 
     def disconnect(self):
-        pass
+        self.stopKeepalive.set()
+
+    def launchKeepAlive(self):
+        looper = Looper(self, delay=1, stopevent=self.stopKeepalive)
+        looper.start()
+
+    @property
+    def securitycode(self):
+        if self.__seccode is None:
+            reply = self.execCommand(Command.getserialno)
+            if reply.error:
+                raise CommandError(reply.value)
+            self.__seccode = genCheckSum(reply.value)
+        return self.__seccode
 
     def readRate(self):
-        reply = self.execCommand(Command.readvar, flags=[VarId.rate])
+        reply = self.execCommand(Command.rate)
         if reply.error:
             raise CommandError(reply.value)
         return reply.value
 
     def readVolume(self):
-        reply = self.execCommand(Command.readvar, flags=[VarId.volume])
-        if reply.error:
-            raise CommandError(reply.value)
-        return reply.value
-
-    def readDrug(self):
-        reply = self.execCommand(Command.readdrug)
-        if reply.error:
-            raise CommandError(reply.value)
-        return reply.value
-
-    def resetVolume(self):
-        reply = self.execCommand(Command.resetvolume)
-        if reply.error:
-            raise CommandError(reply.value)
-
-    def readDeviceType(self):
-        reply = self.execCommand(Command.readfixed, flags=[FixedVarId.devicetype])
+        reply = self.execCommand(Command.queryvolume)
         if reply.error:
             raise CommandError(reply.value)
         return reply.value
@@ -153,7 +171,6 @@ class RecvThread(threading.Thread):
         self.allowNewCmd()
 
     def run(self):
-        insideNAKerr = False
         insideCommand = False
         while True:
             c = self.__comm.read(1)
@@ -192,113 +209,22 @@ class Reply(object):
         self.value = value
         self.error = error
 
-    def __str__(self):
+    def __repr__(self):
         return "Alaris Reply: Value={}, Error={}".format(self.value, self.error)
 
 ESC = b'\x1B'
 
 class Command(Enum):
-    mode         = b'MO'
-    reset        = b'RZ'
-    off          = b'OF'
-    silence      = b'SI'
-    setdrug      = b'EP'
-    readdrug     = b'LP'
-    showdrug     = b'AP'
-    setid        = b'EN'
-    readid       = b'LN'
-    enspont      = b'DE'
-    disspont     = b'AE'
-    readvar      = b'LE'
-    enspontadj   = b'DM'
-    disspontadj  = b'AM'
-    readadj      = b'LM'
-    readfixed    = b'LF'
-    setrate      = b'PR'
-    setpause     = b'PO'
-    setbolus     = b'PB'
-    setempty     = b'PF'
-    setlimvolume = b'PV'
-    resetvolume  = b'RV'
-    pressurelim  = b'PP'
-    dynpressure  = b'PS'
+    getserialno = b'INST_SERIALNO'
+    remotecfg   = b'REMOTE_CFG'
+    remotectrl  = b'REMOTE_CTRL'
+    queryvolume = b'INF_VI'
+    rate        = b'INF_RATE'
+    infstart    = b'INF_START'
+    infstop     = b'INF_STOP'
 
 # Errors
 @unique
 class Error(Enum):
     EUNDEF   = '?'
-    # Link layer errors
-    ECHAR    = b'\x31'
-    ECHKSUM  = b'\x32'
-    EADDR    = b'\x34'
     ETIMEOUT = b'\x35'
-    ERNR     = b'\x36'
-    EFRAME   = b'\x37'
-    ECTRL    = b'\x38'
-    # Application layer errors
-    EUNKNOWN    = b'01'
-    ECMDMODE    = b'02'
-    ECMDSTAT    = b'03'
-    ESYNTAX     = b'04'
-    EMODEAUTH   = b'05'
-    EMODEAGAIN  = b'06'
-    EMODEMODE   = b'07'
-    ELIMIT      = b'08'
-    EMODESTAT   = b'09'
-    EIDENTU     = b'0A'
-    EIDENTI     = b'0B'
-    EMSGLONG    = b'0C'
-    ECOMBASE    = b'0D'
-    ECOMMODULEI = b'0E'
-    EALARM      = b'12'
-    ERATE       = b'14'
-    EVOLUME     = b'15'
-    EEMPTYMODE  = b'16'
-    EEVENT      = b'1A'
-    ECOMMODULE  = b'1E'
-    ENMAN       = b'1F'
-    EPORTAUTH   = b'20'
-    ENMODEAUTH  = b'22'
-    ECONMODEI   = b'24'
-    EDRUG       = b'25'
-
-    def __str__(self):
-        return ERRdescr[self]
-
-ERRdescr = {
-    Error.EUNDEF   : "Unknown Error",
-    # Link layer errors
-    Error.ECHAR    : "Character Reception Problem",
-    Error.ECHKSUM  : "Incorrect Check-sum",
-    Error.EADDR    : "Incorrect Address",
-    Error.ETIMEOUT : "End of [ACK] Character time-out",
-    Error.ERNR     : "Receiver not Ready",
-    Error.EFRAME   : "Incorrect Frame Length",
-    Error.ECTRL    : "Presence of Control Code",
-    # Application layer errors
-    Error.EUNKNOWN    : "Unknown Command",
-    Error.ECMDMODE    : "Command disabled in the current Mode",
-    Error.ECMDSTAT    : "Command disabled in this status",
-    Error.ESYNTAX     : "Syntax Error",
-    Error.EMODEAUTH   : "Operating Mode not Authorized",
-    Error.EMODEAGAIN  : "Operating Mode already active",
-    Error.EMODEMODE   : "New operating mode disabled in this mode",
-    Error.ELIMIT      : "Parameter out off limit",
-    Error.EMODESTAT   : "New operating mode disabled in this status",
-    Error.EIDENTU     : "Identifier not used",
-    Error.EIDENTI     : "Identifier incorrect",                          # a-z
-    Error.EMSGLONG    : "Message too long",                              # <= 80
-    Error.ECOMBASE    : "Communication session with the base not open",
-    Error.ECOMMODULEI : "Communication with module impossible",
-    Error.EALARM      : "Presence of an Alarm",
-    Error.ERATE       : "Attempt to launch infusion before flow rate selection",
-    Error.EVOLUME     : "Insufficient Volume to launch a bolus",
-    Error.EEMPTYMODE  : "Impossible to launch the empty Syringe mode",
-    Error.EEVENT      : "Recorded event number incorrect",               # 1-64
-    Error.ECOMMODULE  : "The Communication with the module is not open",
-    Error.ENMAN       : "One of the modules is not in the manual mode",
-    Error.EPORTAUTH   : "Command not authorized with this Port",
-    Error.ENMODEAUTH  : "New mode unauthorized",
-    Error.ECONMODEI   : "Connection Mode incorrect",
-    Error.EDRUG       : "Drug number incorrect"
-}
