@@ -9,7 +9,8 @@ setup(name         = 'infupy',
       license      = 'ISC',
       packages     = ['infupy', 'infupy.backends', 'infupy.gui'],
       install_requires=[
-          'pyserial'
+          'pyserial',
+          'crcmod'
       ],
       scripts = [
           'scripts/syre.pyw'
