@@ -13,7 +13,7 @@ DEBUG = False
 
 def genCheckSum(msg):
     asciisum = sum(msg)
-    high, low = divmod(asciisum, 0x100)
+    _, low = divmod(asciisum, 0x100)
     checksum = 0xFF - low
     checkbytes = ("%02X" % checksum).encode('ASCII')
     return checkbytes
@@ -103,7 +103,7 @@ class FreseniusSyringe(Syringe):
         def qTimeout():
             self._comm.recvq.put(Reply(error = True, value = Error.ETIMEOUT))
             self._comm.cmdq.task_done()
-        
+
         cmd = genFrame(self.__index + msg)
         self._comm.cmdq.put(cmd)
 
@@ -266,7 +266,7 @@ class FreseniusComm(serial.Serial):
 
 
 class RecvThread(threading.Thread):
-    def __init__(self, comm, recvq, cmdq):
+    def __init__(self, comm):
         super().__init__(daemon=True)
         self.__comm   = comm
         self.__recvq  = comm.recvq
@@ -288,7 +288,7 @@ class RecvThread(threading.Thread):
         self.allowNewCmd()
 
     def processRxBuffer(self):
-        status, origin, msg, check = parseReply(self.__buffer)
+        status, origin, msg, _ = parseReply(self.__buffer)
         self.__buffer = b""
         # Send ACK
         self.__cmdq.put(ACK)

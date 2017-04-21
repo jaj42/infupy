@@ -1,9 +1,7 @@
 import threading
 import queue
-import time
 
 from enum import Enum, unique
-from datetime import datetime
 
 import serial
 import crcmod
@@ -67,7 +65,7 @@ class AlarisSyringe(Syringe):
     def __del__(self):
         self.stopKeepAlive()
 
-    def execRawCommand(self, msg, retry=True):
+    def execRawCommand(self, msg):
         def qTimeout():
             self._comm.recvq.put(Reply(error = True, value = Error.ETIMEOUT))
             self._comm.cmdq.task_done()
@@ -168,7 +166,7 @@ class RecvThread(threading.Thread):
             printerr("State machine got confused: {}", e)
 
     def processRxBuffer(self):
-        fields, check = parseReply(self.__buffer)
+        fields, _ = parseReply(self.__buffer)
         self.__buffer = b''
         reply = Reply(b' '.join(fields))
         self.__recvq.put(reply)
