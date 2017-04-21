@@ -443,7 +443,7 @@ class ReplyStatus(Enum):
 # Errors
 @unique
 class Error(Enum):
-    EUNDEF   = '?'
+    EUNDEF   = b'?'
     # Link layer errors
     ECHAR    = b'\x31'
     ECHKSUM  = b'\x32'
