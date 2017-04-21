@@ -33,7 +33,7 @@ def parseReply(rxbytes):
 
 class Looper(threading.Thread):
     def __init__(self, syringe, delay=0.5, stopevent=None):
-        super().__init__()
+        super().__init__(daemon=True)
         if stopevent is None:
             stopevent = threading.Event()
         self.stopped = stopevent
@@ -41,13 +41,20 @@ class Looper(threading.Thread):
         self.syringe = syringe
 
     def run(self):
-        syringe = self.syringe
+        # Need to 'enable' continuously for keep-alive
         while not self.stopped.wait(self.delay):
-            syringe.execCommand(Command.remotectrl, [b'ENABLED', syringe.securitycode])
-            syringe.execCommand(Command.remotecfg, [b'ENABLED', syringe.securitycode])
-        # Disable on exit
-        syringe.execCommand(Command.remotectrl, [b'DISABLED'])
-        syringe.execCommand(Command.remotecfg, [b'DISABLED'])
+            self.enable()
+        self.disable()
+
+    def enable(self):
+        s = self.syringe
+        s.execCommand(Command.remotectrl, [b'ENABLED', s.securitycode])
+        s.execCommand(Command.remotecfg, [b'ENABLED', s.securitycode])
+
+    def disable(self):
+        s = self.syringe
+        s.execCommand(Command.remotectrl, [b'DISABLED'])
+        s.execCommand(Command.remotecfg, [b'DISABLED'])
 
 class AlarisSyringe(Syringe):
     def __init__(self, comm):
@@ -58,7 +65,7 @@ class AlarisSyringe(Syringe):
         self.launchKeepAlive()
 
     def __del__(self):
-        self.disconnect()
+        self.stopKeepAlive()
 
     def execRawCommand(self, msg, retry=True):
         def qTimeout():
@@ -68,7 +75,7 @@ class AlarisSyringe(Syringe):
         cmd = genFrame(msg)
         self._comm.cmdq.put(cmd)
 
-        # Time out after 1 second in case of communication failure.
+        # Time out after 1 second in case we get no reply.
         t = threading.Timer(1, qTimeout)
         t.start()
         self._comm.cmdq.join()
@@ -82,15 +89,12 @@ class AlarisSyringe(Syringe):
         commandraw = b'^'.join(cmdfields)
         return self.execRawCommand(commandraw)
 
-    def connect(self):
-        return True
-
-    def disconnect(self):
-        self.stopKeepalive.set()
-
     def launchKeepAlive(self):
         looper = Looper(self, delay=1, stopevent=self.stopKeepalive)
         looper.start()
+
+    def stopKeepAlive(self):
+        self.stopKeepalive.set()
 
     @property
     def securitycode(self):
@@ -226,5 +230,5 @@ class Command(Enum):
 # Errors
 @unique
 class Error(Enum):
-    EUNDEF   = '?'
+    EUNDEF   = b'?'
     ETIMEOUT = b'\x35'
