@@ -35,9 +35,6 @@ class Syringe():
     def setRate(self, rate):
         pass
 
-    def bolus(self, volume, rate):
-        pass
-
     # Events
     def registerEvent(self, event):
         self._events |= set([event])

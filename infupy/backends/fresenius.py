@@ -15,7 +15,7 @@ def genCheckSum(msg):
     asciisum = sum(msg)
     _, low = divmod(asciisum, 0x100)
     checksum = 0xFF - low
-    checkbytes = ("%02X" % checksum).encode('ASCII')
+    checkbytes = b'%02X' % checksum
     return checkbytes
 
 def genFrame(msg):
@@ -127,7 +127,7 @@ class FreseniusSyringe(Syringe):
 
     def execCommand(self, command, flags=[], args=[]):
         if len(flags) > 0:
-            flagvals = map(lambda x: x.value, flags)
+            flagvals = [f.value for f in flags]
             flagbytes = b''.join(flagvals)
             commandraw = command.value + b';' + flagbytes
         elif len(args) > 0:
@@ -272,7 +272,7 @@ class RecvThread(threading.Thread):
         self.__recvq  = comm.recvq
         self.__cmdq   = comm.cmdq
         self.__eventq = comm.eventq
-        self.__buffer = b""
+        self.__buffer = b''
 
     def sendSpontReply(self, origin, status):
         self.__cmdq.put(genFrame(origin + status.value))
@@ -288,10 +288,16 @@ class RecvThread(threading.Thread):
         self.allowNewCmd()
 
     def processRxBuffer(self):
-        status, origin, msg, _ = parseReply(self.__buffer)
-        self.__buffer = b""
-        # Send ACK
-        self.__cmdq.put(ACK)
+        status, origin, msg, chk = parseReply(self.__buffer)
+        self.__buffer = b''
+        if chk:
+            # Send ACK
+            self.__cmdq.put(ACK)
+        else
+            # Send NAK
+            printerr("Checksum error: {}", msg)
+            self.__cmdq.put(NAK + Error.ECHKSUM.value)
+            return
 
         if status is ReplyStatus.incorrect:
             # Error condition
@@ -377,7 +383,7 @@ ENQ = b'\x05'
 DC4 = b'\x14'
 
 # Allowed command characters
-#CHROK = list(map(chr, range(0x20 , 0x7E)))
+CHROK = [chr(c) for c in range(0x20 , 0x7E)]
 
 class Reply(object):
     __slots__ = ('origin', 'value', 'error')
