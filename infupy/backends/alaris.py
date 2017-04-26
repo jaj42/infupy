@@ -1,7 +1,7 @@
 import threading
 import queue
 
-from enum import Enum, unique
+from enum import Enum, auto
 
 import serial
 import crcmod
@@ -67,7 +67,7 @@ class AlarisSyringe(Syringe):
 
     def execRawCommand(self, msg):
         def qTimeout():
-            self._comm.recvq.put(Reply(error = True, value = Error.ETIMEOUT))
+            self._comm.recvq.put(Reply(error = True, value = Error.ESILENT))
             self._comm.cmdq.task_done()
 
         cmd = genFrame(msg)
@@ -226,7 +226,6 @@ class Command(Enum):
     infstop     = b'INF_STOP'
 
 # Errors
-@unique
 class Error(Enum):
-    EUNDEF   = b'?'
-    ETIMEOUT = b'\x35'
+    ESILENT = auto()
+    EUNDEF  = auto()
