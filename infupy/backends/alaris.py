@@ -6,7 +6,7 @@ from enum import Enum, unique
 import serial
 import crcmod
 
-from infupy.backends.common import *
+from infupy.backends.common import Syringe, CommandError, printerr
 
 DEBUG = False
 
@@ -30,7 +30,7 @@ def parseReply(rxbytes):
     return (ret, chk == genCheckSum(rxmsg))
 
 class Looper(threading.Thread):
-    def __init__(self, syringe, delay=0.5, stopevent=None):
+    def __init__(self, syringe, delay=1, stopevent=None):
         super().__init__(daemon=True)
         if stopevent is None:
             stopevent = threading.Event()

@@ -7,7 +7,7 @@ from datetime import datetime
 
 import serial
 
-from infupy.backends.common import *
+from infupy.backends.common import Syringe, CommandError, printerr
 
 DEBUG = False
 
@@ -82,13 +82,12 @@ def extractVolume(msg):
     return round(10**-3 * n, 3)
 
 class FreseniusSyringe(Syringe):
-    def __init__(self, comm, index):
+    def __init__(self, comm, index=None):
         super().__init__()
-        if not isinstance(comm, FreseniusComm):
-            self._comm = None
-            raise CommunicationError("Serial link error")
-        else:
-            self._comm = comm
+        self._comm = comm
+        if index is None:
+            # Standalone syringe
+            index = b''
         if isinstance(index, bytes):
             self.__index = index
         else:
@@ -121,7 +120,7 @@ class FreseniusSyringe(Syringe):
             printerr("Error: {}. Retrying command.", reply.value)
             return self.execRawCommand(msg, retry=False)
         elif reply.value == Error.ETIMEOUT:
-            raise CommunicationError(reply.value)
+            raise IOError(reply.value)
         else:
             return reply
 
@@ -143,8 +142,9 @@ class FreseniusSyringe(Syringe):
     def disconnect(self):
         try:
             self.execCommand(Command.disconnect)
-        except CommunicationError:
-            pass # CommunicationError means we're already disconnected.
+        except IOError: 
+            # We're already disconnected.
+            pass
 
     def readRate(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.rate])
