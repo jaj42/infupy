@@ -1,33 +1,30 @@
 import sys
+from abc import ABCMeta
 
 def printerr(msg, e=''):
     msg = "Backend: " + str(msg)
     print(msg.format(e), file=sys.stderr)
 
-class CommunicationError(Exception):
-    def __str__(self):
-        return "Communication error: {}".format(self.args)
-
 class CommandError(Exception):
     def __str__(self):
         return "Command error: {}".format(self.args)
 
-class Syringe():
+class Syringe(metaclass=ABCMeta):
     _events = set()
 
-    def __init__(self):
-        pass
-
-    def execRawCommand(self, msg):
+    @abstractmethod
+    def execCommand(self, msg):
         """
         Send command and read reply.
         """
         pass
 
     # Read Perfusion related values
+    @abstractmethod
     def readRate(self):
         return 0
 
+    @abstractmethod
     def readVolume(self):
         return 0
 
