@@ -1,5 +1,5 @@
 import sys
-from abc import ABCMeta
+from abc import ABCMeta, abstractmethod
 
 def printerr(msg, e=''):
     msg = "Backend: " + str(msg)

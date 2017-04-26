@@ -293,7 +293,7 @@ class RecvThread(threading.Thread):
         if chk:
             # Send ACK
             self.__cmdq.put(ACK)
-        else
+        else:
             # Send NAK
             printerr("Checksum error: {}", msg)
             self.__cmdq.put(NAK + Error.ECHKSUM.value)
