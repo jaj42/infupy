@@ -14,23 +14,20 @@ class Syringe(metaclass=ABCMeta):
 
     @abstractmethod
     def execCommand(self, msg):
-        """
-        Send command and read reply.
-        """
-        pass
+        raise NotImplementedError
 
     # Read Perfusion related values
     @abstractmethod
     def readRate(self):
-        return 0
+        raise NotImplementedError
 
     @abstractmethod
     def readVolume(self):
-        return 0
+        raise NotImplementedError
 
     # Infusion control
     def setRate(self, rate):
-        pass
+        raise NotImplementedError
 
     # Events
     def registerEvent(self, event):
