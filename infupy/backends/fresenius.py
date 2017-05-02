@@ -63,28 +63,10 @@ def parseVars(msg):
         ret[ident] = value
     return ret
 
-def extractRate(msg):
-    vals = parseVars(msg)
-    if VarId.rate in vals.keys():
-        vol = vals[VarId.rate]
-    else:
-        raise ValueError
-    n = int(vol, 16)
-    return round(10**-1 * n, 1)
-
-def extractVolume(msg):
-    vals = parseVars(msg)
-    if VarId.volume in vals.keys():
-        vol = vals[VarId.volume]
-    else:
-        raise ValueError
-    n = int(vol, 16)
-    return round(10**-3 * n, 3)
-
-class FreseniusSyringe(Syringe):
+class FreseniusModule(Syringe):
     def __init__(self, comm, index=None):
         super().__init__()
-        self._comm = comm
+        self.comm = comm
         if index is None:
             # Standalone syringe
             index = b''
@@ -95,24 +77,24 @@ class FreseniusSyringe(Syringe):
         self.connect()
 
     def __del__(self):
-        if self._comm is not None:
+        if self.comm is not None:
             self.disconnect()
 
     def execRawCommand(self, msg, retry=True):
         def qTimeout():
-            self._comm.recvq.put(Reply(error=True, value=Error.ETIMEOUT))
-            self._comm.cmdq.task_done()
+            self.comm.recvq.put(Reply(error=True, value=Error.ETIMEOUT))
+            self.comm.allowNewCmd()
 
         cmd = genFrame(self.__index + msg)
-        self._comm.cmdq.put(cmd)
+        self.comm.cmdq.put(cmd)
 
         # Time out after 1 second in case of communication failure.
         t = threading.Timer(1, qTimeout)
         t.start()
-        self._comm.cmdq.join()
+        self.comm.cmdq.join()
         t.cancel()
 
-        reply = self._comm.recvq.get()
+        reply = self.comm.recvq.get()
         if reply.error and retry and reply.value in [Error.ERNR, Error.ETIMEOUT]:
             # Temporary error. Try once more
             printerr("Error: {}. Retrying command.", reply.value)
@@ -138,17 +120,79 @@ class FreseniusSyringe(Syringe):
     def disconnect(self):
         self.execCommand(Command.disconnect)
 
+    def readDeviceType(self):
+        reply = self.execCommand(Command.readfixed, flags=[FixedVarId.devicetype])
+        if reply.error:
+            raise CommandError(reply.value)
+        return reply.value
+
+class FreseniusBase(FreseniusModule):
+    def __init__(self, comm, wait = True):
+        super().__init__(comm, 0)
+        self.syringes = set()
+        if wait:
+            time.sleep(1)
+
+    def __del__(self):
+        for s in self.syringes:
+            s.disconnect()
+        self.disconnect()
+        try:
+            self.comm.cmdq.clear()
+        except AttributeError:
+            pass
+        try:
+            self.comm.recvq.clear()
+        except AttributeError:
+            pass
+
+    def connectSyringe(self, index):
+        s = FreseniusSyringe(self.comm, index)
+        self.syringes |= set([s])
+        return s
+
+    def listModules(self):
+        modules = []
+        reply = self.execCommand(Command.readvar, flags=[VarId.modules])
+        if reply.error:
+            raise CommandError(reply.value)
+        results = parseVars(reply.value)
+        binmods = int(results[VarId.modules], 16)
+        for i in range(5):
+            if (1 << i) & binmods:
+                modules.append(i + 1)
+        return modules
+
+    def readVolume(self):
+        raise NotImplementedError
+
+    def readRate(self):
+        raise NotImplementedError
+
+class FreseniusSyringe(FreseniusModule):
     def readRate(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.rate])
         if reply.error:
             raise CommandError(reply.value)
-        return extractRate(reply.value)
+        vals = parseVars(reply.value)
+        if VarId.rate in vals.keys():
+            vol = vals[VarId.rate]
+        else:
+            raise ValueError
+        n = int(vol, 16)
+        return round(10**-1 * n, 1)
 
     def readVolume(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.volume])
         if reply.error:
             raise CommandError(reply.value)
-        return extractVolume(reply.value)
+        vals = parseVars(reply.value)
+        if VarId.volume in vals.keys():
+            vol = vals[VarId.volume]
+        else:
+            raise ValueError
+        n = int(vol, 16)
+        return round(10**-3 * n, 3)
 
     def readDrug(self):
         reply = self.execCommand(Command.readdrug)
@@ -160,12 +204,6 @@ class FreseniusSyringe(Syringe):
         reply = self.execCommand(Command.resetvolume)
         if reply.error:
             raise CommandError(reply.value)
-
-    def readDeviceType(self):
-        reply = self.execCommand(Command.readfixed, flags=[FixedVarId.devicetype])
-        if reply.error:
-            raise CommandError(reply.value)
-        return reply.value
 
     # Spontaneous variable handling
     def registerEvent(self, event):
@@ -192,36 +230,6 @@ class FreseniusSyringe(Syringe):
     @property
     def index(self):
         return int(self.__index)
-
-
-class FreseniusBase(FreseniusSyringe):
-    def __init__(self, comm, wait = True):
-        super().__init__(comm, 0)
-        if wait:
-            time.sleep(1)
-
-    def __del__(self):
-        super().__del__()
-        try:
-            self._comm.cmdq.clear()
-        except AttributeError:
-            pass
-        try:
-            self._comm.recvq.clear()
-        except AttributeError:
-            pass
-
-    def listModules(self):
-        modules = []
-        reply = self.execCommand(Command.readvar, flags=[VarId.modules])
-        if reply.error:
-            raise CommandError(reply.value)
-        results = parseVars(reply.value)
-        binmods = int(results[VarId.modules], 16)
-        for i in range(5):
-            if (1 << i) & binmods:
-                modules.append(i + 1)
-        return modules
 
 class FreseniusComm(serial.Serial):
     def __init__(self, port, baudrate = 19200):
@@ -256,41 +264,38 @@ class FreseniusComm(serial.Serial):
             self.logfile.write(data)
             return super().write(data)
 
+    def allowNewCmd(self):
+        try:
+            self.cmdq.task_done()
+        except ValueError as e:
+            printerr("State machine got confused: {}", e)
+
 
 class RecvThread(threading.Thread):
     def __init__(self, comm):
         super().__init__(daemon=True)
-        self.__comm   = comm
-        self.__recvq  = comm.recvq
-        self.__cmdq   = comm.cmdq
-        self.__eventq = comm.eventq
+        self.comm   = comm
         self.__buffer = b''
 
     def sendSpontReply(self, origin, status):
-        self.__cmdq.put(genFrame(origin + status.value))
-
-    def allowNewCmd(self):
-        try:
-            self.__cmdq.task_done()
-        except ValueError as e:
-            printerr("State machine got confused: {}", e)
+        self.comm.cmdq.put(genFrame(origin + status.value))
 
     def enqueueReply(self, reply):
-        self.__recvq.put(reply)
-        self.allowNewCmd()
+        self.comm.recvq.put(reply)
+        self.comm.allowNewCmd()
 
     def processRxBuffer(self):
         status, origin, msg, chk = parseReply(self.__buffer)
         self.__buffer = b''
         if chk:
             # Send ACK
-            self.__cmdq.put(ACK)
-            self.allowNewCmd()
+            self.comm.cmdq.put(ACK)
+            self.comm.allowNewCmd()
         else:
             # Send NAK
             printerr("Checksum error: {}", msg)
-            self.__cmdq.put(NAK + Error.ECHKSUM.value)
-            self.allowNewCmd()
+            self.comm.cmdq.put(NAK + Error.ECHKSUM.value)
+            self.comm.allowNewCmd()
             return
 
         if status is ReplyStatus.incorrect:
@@ -312,7 +317,7 @@ class RecvThread(threading.Thread):
             if origin is None or not origin.isdigit():
                 return
             iorigin = int(origin)
-            self.__eventq.put((datetime.now(), iorigin, msg))
+            self.comm.eventq.put((datetime.now(), iorigin, msg))
 
         else:
             pass
@@ -321,11 +326,11 @@ class RecvThread(threading.Thread):
         insideNAKerr = False
         insideCommand = False
         while True:
-            c = self.__comm.read(1)
+            c = self.comm.read(1)
             if c == ENQ:
                 # Send keep-alive
-                self.__cmdq.put(DC4)
-                self.allowNewCmd()
+                self.comm.cmdq.put(DC4)
+                self.comm.allowNewCmd()
             elif insideNAKerr:
                 try:
                     error = Error(c)
@@ -356,13 +361,12 @@ class RecvThread(threading.Thread):
 class SendThread(threading.Thread):
     def __init__(self, comm):
         super().__init__(daemon=True)
-        self.__comm = comm
-        self.__cmdq = comm.cmdq
+        self.comm = comm
 
     def run(self):
         while True:
-            msg = self.__cmdq.get()
-            self.__comm.write(msg)
+            msg = self.comm.cmdq.get()
+            self.comm.write(msg)
 
 
 # Frame markers
