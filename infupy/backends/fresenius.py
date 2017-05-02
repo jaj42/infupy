@@ -100,7 +100,7 @@ class FreseniusSyringe(Syringe):
 
     def execRawCommand(self, msg, retry=True):
         def qTimeout():
-            self._comm.recvq.put(Reply(error = True, value = Error.ETIMEOUT))
+            self._comm.recvq.put(Reply(error=True, value=Error.ETIMEOUT))
             self._comm.cmdq.task_done()
 
         cmd = genFrame(self.__index + msg)
@@ -113,14 +113,10 @@ class FreseniusSyringe(Syringe):
         t.cancel()
 
         reply = self._comm.recvq.get()
-        if not reply.error:
-            return reply
-
-        if retry and reply.value in [Error.ERNR, Error.ETIMEOUT]:
+        if reply.error and retry and reply.value in [Error.ERNR, Error.ETIMEOUT]:
+            # Temporary error. Try once more
             printerr("Error: {}. Retrying command.", reply.value)
             return self.execRawCommand(msg, retry=False)
-        elif reply.value == Error.ETIMEOUT:
-            raise IOError(reply.value)
         else:
             return reply
 
@@ -140,11 +136,7 @@ class FreseniusSyringe(Syringe):
         return self.execCommand(Command.connect)
 
     def disconnect(self):
-        try:
-            self.execCommand(Command.disconnect)
-        except IOError: 
-            # We're already disconnected.
-            pass
+        self.execCommand(Command.disconnect)
 
     def readRate(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.rate])
@@ -293,10 +285,12 @@ class RecvThread(threading.Thread):
         if chk:
             # Send ACK
             self.__cmdq.put(ACK)
+            self.allowNewCmd()
         else:
             # Send NAK
             printerr("Checksum error: {}", msg)
             self.__cmdq.put(NAK + Error.ECHKSUM.value)
+            self.allowNewCmd()
             return
 
         if status is ReplyStatus.incorrect:
@@ -331,6 +325,7 @@ class RecvThread(threading.Thread):
             if c == ENQ:
                 # Send keep-alive
                 self.__cmdq.put(DC4)
+                self.allowNewCmd()
             elif insideNAKerr:
                 try:
                     error = Error(c)
