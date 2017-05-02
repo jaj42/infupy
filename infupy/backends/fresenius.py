@@ -205,6 +205,21 @@ class FreseniusSyringe(FreseniusModule):
         if reply.error:
             raise CommandError(reply.value)
 
+    def remoteControl(self, doctrl):
+        #1 : manual, 2 : PC control
+        if doctrl:
+            newmode = b'2'
+        else:
+            newmode = b'1'
+        reply = self.execCommand(Command.mode, args=[newmode])
+        if reply.error:
+            raise CommandError(reply.value)
+
+    def stopInfusion(self):
+        reply = self.execCommand(Command.setpause)
+        if reply.error:
+            raise CommandError(reply.value)
+
     # Spontaneous variable handling
     def registerEvent(self, event):
         super().registerEvent(event)
