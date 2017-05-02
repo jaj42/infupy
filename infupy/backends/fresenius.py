@@ -115,7 +115,10 @@ class FreseniusModule(Syringe):
         return self.execRawCommand(commandraw)
 
     def connect(self):
-        return self.execCommand(Command.connect)
+        reply = self.execCommand(Command.connect)
+        if reply.error:
+            raise CommandError(reply.value)
+        return reply.value
 
     def disconnect(self):
         self.execCommand(Command.disconnect)
@@ -139,9 +142,6 @@ class FreseniusBase(FreseniusModule):
         self.disconnect()
         try:
             self.comm.cmdq.clear()
-        except AttributeError:
-            pass
-        try:
             self.comm.recvq.clear()
         except AttributeError:
             pass
@@ -175,24 +175,18 @@ class FreseniusSyringe(FreseniusModule):
         if reply.error:
             raise CommandError(reply.value)
         vals = parseVars(reply.value)
-        if VarId.rate in vals.keys():
-            vol = vals[VarId.rate]
-        else:
-            raise ValueError
+        vol = vals[VarId.rate]
         n = int(vol, 16)
-        return round(10**-1 * n, 1)
+        return round(n * 1e-1, 1)
 
     def readVolume(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.volume])
         if reply.error:
             raise CommandError(reply.value)
         vals = parseVars(reply.value)
-        if VarId.volume in vals.keys():
-            vol = vals[VarId.volume]
-        else:
-            raise ValueError
+        vol = vals[VarId.volume]
         n = int(vol, 16)
-        return round(10**-3 * n, 3)
+        return round(n * 1e-3, 3)
 
     def readDrug(self):
         reply = self.execCommand(Command.readdrug)
@@ -409,7 +403,7 @@ class Reply(object):
         self.value = value
         self.error = error
 
-    def __str__(self):
+    def __repr__(self):
         return "Fresenius Reply: Origin={}, Value={}, Error={}".format(self.origin, self.value, self.error)
 
 class Command(Enum):
@@ -499,7 +493,7 @@ class Error(Enum):
     ECONMODEI   = b'24'
     EDRUG       = b'25'
 
-    def __str__(self):
+    def __repr__(self):
         return ERRdescr[self]
 
 ERRdescr = {
