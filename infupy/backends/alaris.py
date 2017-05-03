@@ -32,8 +32,6 @@ def parseReply(rxbytes):
 class Looper(threading.Thread):
     def __init__(self, syringe, delay=1, stopevent=None):
         super().__init__(daemon=True)
-        if stopevent is None:
-            stopevent = threading.Event()
         self.stopped = stopevent
         self.delay = delay
         self.syringe = syringe
@@ -57,30 +55,35 @@ class Looper(threading.Thread):
 class AlarisSyringe(Syringe):
     def __init__(self, comm):
         super().__init__()
-        self._comm = comm
+        self.comm = comm
         self.__seccode = None
-        self.stopKeepalive = threading.Event()
+        self.__kastopper = threading.Event()
         self.launchKeepAlive()
 
     def __del__(self):
         self.stopKeepAlive()
 
-    def execRawCommand(self, msg):
+    def execRawCommand(self, msg, retry=True):
         def qTimeout():
-            self._comm.recvq.put(Reply(error = True, value = Error.ESILENT))
-            self._comm.cmdq.task_done()
+            self.comm.recvq.put(Reply(error = True, value = Error.ETIMEOUT))
+            self.comm.allowNewCmd()
 
         cmd = genFrame(msg)
-        self._comm.cmdq.put(cmd)
+        self.comm.cmdq.put(cmd)
 
-        # Time out after 1 second in case we get no reply.
-        t = threading.Timer(1, qTimeout)
+        # Time out after .5 seconds in case we get no reply.
+        t = threading.Timer(.5, qTimeout)
         t.start()
-        self._comm.cmdq.join()
+        self.comm.cmdq.join()
         t.cancel()
 
-        reply = self._comm.recvq.get()
-        return reply
+        reply = self.comm.recvq.get()
+        if reply.error and retry and reply.value is Error.ETIMEOUT:
+            # Temporary error. Try once more
+            printerr("Error: {}. Retrying command.", reply.value)
+            return self.execRawCommand(msg, retry=False)
+        else:
+            return reply
 
     def execCommand(self, command, fields=[]):
         cmdfields = [command.value] + fields
@@ -88,11 +91,11 @@ class AlarisSyringe(Syringe):
         return self.execRawCommand(commandraw)
 
     def launchKeepAlive(self):
-        looper = Looper(self, delay=1, stopevent=self.stopKeepalive)
+        looper = Looper(self, delay=1, stopevent=self.__kastopper)
         looper.start()
 
     def stopKeepAlive(self):
-        self.stopKeepalive.set()
+        self.__kastopper.set()
 
     @property
     def securitycode(self):
@@ -115,6 +118,14 @@ class AlarisSyringe(Syringe):
             raise CommandError(reply.value)
         return reply.value
 
+    def setRate(self, newrate):
+        brate = str(newrate).encode('ASCII')
+        fields = [brate, b'ml/h']
+        reply = self.execCommand(Command.rate, fields)
+        if reply.error:
+            raise CommandError(reply.value)
+        return reply.value
+
 class AlarisComm(serial.Serial):
     def __init__(self, port, baudrate = 38400):
         # These settings come from Alaris documentation
@@ -130,15 +141,17 @@ class AlarisComm(serial.Serial):
         self.cmdq  = queue.Queue(maxsize = 10)
 
         # Write lock to make sure only one source writes at a time
-        self.__rxthread = RecvThread(comm  = self,
-                                     recvq = self.recvq,
-                                     cmdq  = self.cmdq)
-
-        self.__txthread = SendThread(comm  = self,
-                                     cmdq  = self.cmdq)
+        self.__rxthread = RecvThread(comm = self)
+        self.__txthread = SendThread(comm = self)
 
         self.__rxthread.start()
         self.__txthread.start()
+
+    def allowNewCmd(self):
+        try:
+            self.cmdq.task_done()
+        except ValueError as e:
+            printerr("State machine got confused: {}", e)
 
     if DEBUG:
         # Write all data exchange to file
@@ -152,30 +165,22 @@ class AlarisComm(serial.Serial):
             return super().write(data)
 
 class RecvThread(threading.Thread):
-    def __init__(self, comm, recvq, cmdq):
+    def __init__(self, comm):
         super().__init__(daemon=True)
-        self.__comm   = comm
-        self.__recvq  = recvq
-        self.__cmdq   = cmdq
+        self.comm   = comm
         self.__buffer = b''
-
-    def allowNewCmd(self):
-        try:
-            self.__cmdq.task_done()
-        except ValueError as e:
-            printerr("State machine got confused: {}", e)
 
     def processRxBuffer(self):
         fields, _ = parseReply(self.__buffer)
         self.__buffer = b''
         reply = Reply(b' '.join(fields))
-        self.__recvq.put(reply)
-        self.allowNewCmd()
+        self.comm.recvq.put(reply)
+        self.comm.allowNewCmd()
 
     def run(self):
         insideCommand = False
         while True:
-            c = self.__comm.read(1)
+            c = self.comm.read(1)
             if c == ESC:
                 # Premature termination
                 self.__buffer = b""
@@ -195,15 +200,14 @@ class RecvThread(threading.Thread):
                 printerr("Unexpected char received: {}", ord(c))
 
 class SendThread(threading.Thread):
-    def __init__(self, comm, cmdq):
+    def __init__(self, comm):
         super().__init__(daemon=True)
-        self.__comm = comm
-        self.__cmdq = cmdq
+        self.comm = comm
 
     def run(self):
         while True:
-            msg = self.__cmdq.get()
-            self.__comm.write(msg)
+            msg = self.comm.cmdq.get()
+            self.comm.write(msg)
 
 class Reply(object):
     __slots__ = ('value', 'error')
@@ -227,5 +231,5 @@ class Command(Enum):
 
 # Errors
 class Error(Enum):
-    ESILENT = auto()
+    ETIMEOUT = auto()
     EUNDEF  = auto()
