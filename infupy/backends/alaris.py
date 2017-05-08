@@ -30,7 +30,7 @@ def parseReply(rxbytes):
     return (ret, chk == genCheckSum(rxmsg))
 
 class Looper(threading.Thread):
-    def __init__(self, syringe, delay=1, stopevent=None):
+    def __init__(self, syringe, delay, stopevent):
         super().__init__(daemon=True)
         self.stopped = stopevent
         self.delay = delay
