@@ -327,6 +327,7 @@ class RecvThread(threading.Thread):
                 return
             iorigin = int(origin)
             self.comm.eventq.put((datetime.now(), iorigin, msg))
+            self.comm.allowNewCmd()
 
         else:
             pass
