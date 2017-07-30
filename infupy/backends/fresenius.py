@@ -63,6 +63,24 @@ def parseVars(msg):
         ret[ident] = value
     return ret
 
+def extractRate(msg):
+    vals = parseVars(msg)
+    if VarId.rate in vals.keys():
+        vol = vals[VarId.rate]
+    else:
+        raise ValueError
+    n = int(vol, 16)
+    return round(n * 1e-1, 1)
+
+def extractVolume(msg):
+    vals = parseVars(msg)
+    if VarId.volume in vals.keys():
+        vol = vals[VarId.volume]
+    else:
+        raise ValueError
+    n = int(vol, 16)
+    return round(n * 1e-3, 3)
+
 class FreseniusModule(Syringe):
     def __init__(self, comm, index=None):
         super().__init__()
@@ -174,19 +192,13 @@ class FreseniusSyringe(FreseniusModule):
         reply = self.execCommand(Command.readvar, flags=[VarId.rate])
         if reply.error:
             raise CommandError(reply.value)
-        vals = parseVars(reply.value)
-        vol = vals[VarId.rate]
-        n = int(vol, 16)
-        return round(n * 1e-1, 1)
+        return extractRate(reply.value)
 
     def readVolume(self):
         reply = self.execCommand(Command.readvar, flags=[VarId.volume])
         if reply.error:
             raise CommandError(reply.value)
-        vals = parseVars(reply.value)
-        vol = vals[VarId.volume]
-        n = int(vol, 16)
-        return round(n * 1e-3, 3)
+        return extractVolume(reply.value)
 
     def readDrug(self):
         reply = self.execCommand(Command.readdrug)
@@ -286,8 +298,9 @@ class RecvThread(threading.Thread):
         self.comm   = comm
         self.__buffer = b''
 
-    def sendSpontReply(self, origin, status):
+    def acknowledgeEvent(self, origin, status):
         self.comm.cmdq.put(genFrame(origin + status.value))
+        self.comm.allowNewCmd()
 
     def enqueueReply(self, reply):
         self.comm.recvq.put(reply)
@@ -321,13 +334,12 @@ class RecvThread(threading.Thread):
             self.enqueueReply(Reply(origin, msg))
 
         elif status is ReplyStatus.spont or status is ReplyStatus.spontadj:
-            # Spontaneously generated information. We need to acknowledge.
-            self.sendSpontReply(origin, status)
+            # Spontaneously generated event. We need to acknowledge.
+            self.acknowledgeEvent(origin, status)
             if origin is None or not origin.isdigit():
                 return
             iorigin = int(origin)
             self.comm.eventq.put((datetime.now(), iorigin, msg))
-            self.comm.allowNewCmd()
 
         else:
             pass
