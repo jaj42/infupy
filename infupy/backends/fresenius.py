@@ -27,7 +27,7 @@ def parseReply(rxbytes):
     rxmsg = rxbytes[:-2]
 
     # Partition the string
-    splt   = rxmsg.split(b';', 1)
+    splt = rxmsg.split(b';', 1)
     meta = splt[0]
     if len(splt) > 1:
         msg = splt[1]
@@ -65,19 +65,17 @@ def parseVars(msg):
 
 def extractRate(msg):
     vals = parseVars(msg)
-    if VarId.rate in vals.keys():
-        vol = vals[VarId.rate]
-    else:
+    if not VarId.rate in vals.keys():
         raise ValueError
-    n = int(vol, 16)
+    rate = vals[VarId.rate]
+    n = int(rate, 16)
     return round(n * 1e-1, 1)
 
 def extractVolume(msg):
     vals = parseVars(msg)
-    if VarId.volume in vals.keys():
-        vol = vals[VarId.volume]
-    else:
+    if not VarId.volume in vals.keys():
         raise ValueError
+    vol = vals[VarId.volume]
     n = int(vol, 16)
     return round(n * 1e-3, 3)
 
