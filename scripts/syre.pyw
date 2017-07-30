@@ -152,7 +152,7 @@ class Worker(QtCore.QObject):
                     s = fresenius.FreseniusSyringe(self.conn, modid)
                     s.registerEvent(fresenius.VarId.volume)
                     self.syringes[modid] = s
-        except fresenius.CommunicationError as e:
+        except IOError as e:
             self.reportUI("Attach syringe error: {}".format(e))
 
     def checkSerial(self):
