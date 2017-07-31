@@ -146,7 +146,7 @@ class FreseniusModule(Syringe):
         return reply.value
 
 class FreseniusBase(FreseniusModule):
-    def __init__(self, comm, wait = True):
+    def __init__(self, comm, wait=True):
         super().__init__(comm, 0)
         self.syringes = set()
         if wait:
@@ -251,7 +251,7 @@ class FreseniusSyringe(FreseniusModule):
         return int(self.__index)
 
 class FreseniusComm(serial.Serial):
-    def __init__(self, port, baudrate = 19200):
+    def __init__(self, port, baudrate=19200):
         # These settings come from Fresenius documentation
         super().__init__(port     = port,
                          baudrate = baudrate,
@@ -262,8 +262,8 @@ class FreseniusComm(serial.Serial):
             self.logfile = open('fresenius_raw.log', 'wb')
 
         self.recvq  = queue.LifoQueue()
-        self.cmdq   = queue.Queue(maxsize = 10)
-        self.eventq = queue.Queue()
+        self.cmdq   = queue.Queue(maxsize=10)
+        self.eventq = queue.Queue(maxsize=1e4)
 
         # Write lock to make sure only one source writes at a time
         self.__rxthread = RecvThread(self)
@@ -293,7 +293,7 @@ class FreseniusComm(serial.Serial):
 class RecvThread(threading.Thread):
     def __init__(self, comm):
         super().__init__(daemon=True)
-        self.comm   = comm
+        self.comm = comm
         self.__buffer = b''
 
     def acknowledgeEvent(self, origin, status):
@@ -324,7 +324,7 @@ class RecvThread(threading.Thread):
                 error = Error(msg)
             except ValueError:
                 error = Error.EUNDEF
-            self.enqueueReply(Reply(origin, error, error = True))
+            self.enqueueReply(Reply(origin, error, error=True))
             printerr("Command error: {}", error)
 
         elif status is ReplyStatus.correct:
@@ -356,7 +356,7 @@ class RecvThread(threading.Thread):
                     error = Error(c)
                 except:
                     error = Error.EUNDEF
-                self.enqueueReply(Reply(error = True, value = error))
+                self.enqueueReply(Reply(error=True, value=error))
                 printerr("Protocol error: {}", error)
                 insideNAKerr = False
             elif c == ACK:
@@ -406,7 +406,7 @@ CHROK = [chr(c) for c in range(0x20 , 0x7E)]
 
 class Reply(object):
     __slots__ = ('origin', 'value', 'error')
-    def __init__(self, origin = None, value = '', error = False):
+    def __init__(self, origin=None, value='', error=False):
         if origin is None:
             self.origin = 0
         else:
