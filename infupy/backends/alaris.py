@@ -140,7 +140,6 @@ class AlarisComm(serial.Serial):
         self.recvq = queue.LifoQueue()
         self.cmdq  = queue.Queue(maxsize = 10)
 
-        # Write lock to make sure only one source writes at a time
         self.__rxthread = RecvThread(comm = self)
         self.__txthread = SendThread(comm = self)
 
@@ -181,9 +180,9 @@ class RecvThread(threading.Thread):
         insideCommand = False
         while True:
             c = self.comm.read(1)
-            if c == ESC:
-                # Premature termination
-                self.__buffer = b""
+            if c == b'\x1B':
+                # Premature termination, b'\x1B' = ESC
+                self.__buffer = b''
                 insideCommand = False
             elif c == b'!':
                 # Start of command marker
@@ -217,8 +216,6 @@ class Reply(object):
 
     def __repr__(self):
         return "Alaris Reply: Value={}, Error={}".format(self.value, self.error)
-
-ESC = b'\x1B'
 
 class Command(Enum):
     getserialno = b'INST_SERIALNO'
