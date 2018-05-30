@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name         = 'infupy',
-      version      = '0.1',
+      version      = '0.2',
       description  = 'Syringe pump infusion',
       url          = 'https://github.com/jaj42/infupy',
       author       = 'Jona Joachim',
@@ -10,7 +10,8 @@ setup(name         = 'infupy',
       packages     = ['infupy', 'infupy.backends', 'infupy.gui'],
       install_requires=[
           'pyserial',
-          'crcmod'
+          'crcmod',
+          'qtpy'
       ],
       scripts = [
           'scripts/syre.pyw'

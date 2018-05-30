@@ -6,7 +6,8 @@
 #
 # WARNING! All changes made in this file will be lost!
 
-from PyQt4 import QtCore, QtGui
+#from PyQt4 import QtCore, QtWidgets
+from qtpy import QtCore, QtWidgets, QtWidgets
 
 try:
     _fromUtf8 = QtCore.QString.fromUtf8
@@ -15,36 +16,36 @@ except AttributeError:
         return s
 
 try:
-    _encoding = QtGui.QApplication.UnicodeUTF8
+    _encoding = QtWidgets.QApplication.UnicodeUTF8
     def _translate(context, text, disambig):
-        return QtGui.QApplication.translate(context, text, disambig, _encoding)
+        return QtWidgets.QApplication.translate(context, text, disambig, _encoding)
 except AttributeError:
     def _translate(context, text, disambig):
-        return QtGui.QApplication.translate(context, text, disambig)
+        return QtWidgets.QApplication.translate(context, text, disambig)
 
 class Ui_wndMain(object):
     def setupUi(self, wndMain):
         wndMain.setObjectName(_fromUtf8("wndMain"))
         wndMain.resize(466, 468)
-        sizePolicy = QtGui.QSizePolicy(QtGui.QSizePolicy.Fixed, QtGui.QSizePolicy.Fixed)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(wndMain.sizePolicy().hasHeightForWidth())
         wndMain.setSizePolicy(sizePolicy)
-        self.centralwidget = QtGui.QWidget(wndMain)
+        self.centralwidget = QtWidgets.QWidget(wndMain)
         self.centralwidget.setObjectName(_fromUtf8("centralwidget"))
-        self.verticalLayout = QtGui.QVBoxLayout(self.centralwidget)
+        self.verticalLayout = QtWidgets.QVBoxLayout(self.centralwidget)
         self.verticalLayout.setObjectName(_fromUtf8("verticalLayout"))
-        self.groupBox_3 = QtGui.QGroupBox(self.centralwidget)
-        sizePolicy = QtGui.QSizePolicy(QtGui.QSizePolicy.Preferred, QtGui.QSizePolicy.Preferred)
+        self.groupBox_3 = QtWidgets.QGroupBox(self.centralwidget)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.groupBox_3.sizePolicy().hasHeightForWidth())
         self.groupBox_3.setSizePolicy(sizePolicy)
         self.groupBox_3.setObjectName(_fromUtf8("groupBox_3"))
-        self.verticalLayout_4 = QtGui.QVBoxLayout(self.groupBox_3)
+        self.verticalLayout_4 = QtWidgets.QVBoxLayout(self.groupBox_3)
         self.verticalLayout_4.setObjectName(_fromUtf8("verticalLayout_4"))
-        self.comboCom = QtGui.QComboBox(self.groupBox_3)
+        self.comboCom = QtWidgets.QComboBox(self.groupBox_3)
         self.comboCom.setEditable(True)
         self.comboCom.setObjectName(_fromUtf8("comboCom"))
         self.comboCom.addItem(_fromUtf8(""))
@@ -58,40 +59,40 @@ class Ui_wndMain(object):
         self.comboCom.addItem(_fromUtf8(""))
         self.verticalLayout_4.addWidget(self.comboCom)
         self.verticalLayout.addWidget(self.groupBox_3)
-        self.groupBox_2 = QtGui.QGroupBox(self.centralwidget)
-        sizePolicy = QtGui.QSizePolicy(QtGui.QSizePolicy.Preferred, QtGui.QSizePolicy.Preferred)
+        self.groupBox_2 = QtWidgets.QGroupBox(self.centralwidget)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.groupBox_2.sizePolicy().hasHeightForWidth())
         self.groupBox_2.setSizePolicy(sizePolicy)
         self.groupBox_2.setObjectName(_fromUtf8("groupBox_2"))
-        self.verticalLayout_3 = QtGui.QVBoxLayout(self.groupBox_2)
+        self.verticalLayout_3 = QtWidgets.QVBoxLayout(self.groupBox_2)
         self.verticalLayout_3.setObjectName(_fromUtf8("verticalLayout_3"))
-        self.horizontalLayout = QtGui.QHBoxLayout()
+        self.horizontalLayout = QtWidgets.QHBoxLayout()
         self.horizontalLayout.setObjectName(_fromUtf8("horizontalLayout"))
-        self.txtFolder = QtGui.QLineEdit(self.groupBox_2)
+        self.txtFolder = QtWidgets.QLineEdit(self.groupBox_2)
         self.txtFolder.setObjectName(_fromUtf8("txtFolder"))
         self.horizontalLayout.addWidget(self.txtFolder)
-        self.btnBrowse = QtGui.QPushButton(self.groupBox_2)
+        self.btnBrowse = QtWidgets.QPushButton(self.groupBox_2)
         self.btnBrowse.setObjectName(_fromUtf8("btnBrowse"))
         self.horizontalLayout.addWidget(self.btnBrowse)
         self.verticalLayout_3.addLayout(self.horizontalLayout)
-        self.horizontalLayout_2 = QtGui.QHBoxLayout()
+        self.horizontalLayout_2 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_2.setObjectName(_fromUtf8("horizontalLayout_2"))
-        self.btnStart = QtGui.QPushButton(self.groupBox_2)
+        self.btnStart = QtWidgets.QPushButton(self.groupBox_2)
         self.btnStart.setObjectName(_fromUtf8("btnStart"))
         self.horizontalLayout_2.addWidget(self.btnStart)
-        self.btnStop = QtGui.QPushButton(self.groupBox_2)
+        self.btnStop = QtWidgets.QPushButton(self.groupBox_2)
         self.btnStop.setObjectName(_fromUtf8("btnStop"))
         self.horizontalLayout_2.addWidget(self.btnStop)
         self.verticalLayout_3.addLayout(self.horizontalLayout_2)
         self.verticalLayout.addWidget(self.groupBox_2)
-        self.groupBox = QtGui.QGroupBox(self.centralwidget)
+        self.groupBox = QtWidgets.QGroupBox(self.centralwidget)
         self.groupBox.setObjectName(_fromUtf8("groupBox"))
-        self.verticalLayout_2 = QtGui.QVBoxLayout(self.groupBox)
+        self.verticalLayout_2 = QtWidgets.QVBoxLayout(self.groupBox)
         self.verticalLayout_2.setObjectName(_fromUtf8("verticalLayout_2"))
-        self.lstSyringes = QtGui.QListWidget(self.groupBox)
-        sizePolicy = QtGui.QSizePolicy(QtGui.QSizePolicy.Preferred, QtGui.QSizePolicy.Expanding)
+        self.lstSyringes = QtWidgets.QListWidget(self.groupBox)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.lstSyringes.sizePolicy().hasHeightForWidth())
@@ -100,7 +101,7 @@ class Ui_wndMain(object):
         self.verticalLayout_2.addWidget(self.lstSyringes)
         self.verticalLayout.addWidget(self.groupBox)
         wndMain.setCentralWidget(self.centralwidget)
-        self.statusBar = QtGui.QStatusBar(wndMain)
+        self.statusBar = QtWidgets.QStatusBar(wndMain)
         self.statusBar.setObjectName(_fromUtf8("statusBar"))
         wndMain.setStatusBar(self.statusBar)
 

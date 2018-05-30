@@ -1,6 +1,7 @@
 import sys, os.path, time, csv, io, queue
 
-from PyQt4 import QtCore, QtGui
+#from PyQt4 import QtCore, QtWidgets
+from qtpy import QtCore, QtWidgets, QtWidgets
 
 import infupy.backends.fresenius as fresenius
 from infupy.gui.syringorecueil_ui import Ui_wndMain
@@ -8,10 +9,10 @@ from infupy.gui.syringorecueil_ui import Ui_wndMain
 DEBUG = True
 
 class Worker(QtCore.QObject):
-    sigConnected      = QtCore.pyqtSignal()
-    sigDisconnected   = QtCore.pyqtSignal()
-    sigUpdateSyringes = QtCore.pyqtSignal(list)
-    sigError          = QtCore.pyqtSignal(str)
+    sigConnected      = QtCore.Signal()
+    sigDisconnected   = QtCore.Signal()
+    sigUpdateSyringes = QtCore.Signal(list)
+    sigError          = QtCore.Signal(str)
 
     def __init__(self):
         super(Worker, self).__init__()
@@ -34,19 +35,19 @@ class Worker(QtCore.QObject):
 
         self.conntimer.start(5000) # 5 seconds
 
-    @QtCore.pyqtSlot()
+    @QtCore.Slot()
     def start(self):
         self.shouldrun = True
 
-    @QtCore.pyqtSlot()
+    @QtCore.Slot()
     def stop(self):
         self.shouldrun = False
 
-    @QtCore.pyqtSlot(str)
+    @QtCore.Slot(str)
     def setport(self, port):
         self.port = port
 
-    @QtCore.pyqtSlot(str)
+    @QtCore.Slot(str)
     def setfolder(self, folder):
         self.destfolder = folder
 
@@ -200,7 +201,7 @@ class Worker(QtCore.QObject):
         if DEBUG: print(err, file=sys.stderr)
         self.sigError.emit(str(err))
 
-    @QtCore.pyqtSlot(str)
+    @QtCore.Slot()
     def cleanup(self):
         self.logtimer.stop()
         self.conntimer.stop()
@@ -214,15 +215,15 @@ class Worker(QtCore.QObject):
             self.csvfd.close()
 
 
-class MainUi(QtGui.QMainWindow, Ui_wndMain):
-    sigCleanup = QtCore.pyqtSignal()
+class MainUi(QtWidgets.QMainWindow, Ui_wndMain):
+    sigCleanup = QtCore.Signal()
 
     def __init__(self, parent = None):
         super(MainUi, self).__init__(parent = parent)
         self.setupUi(self)
 
         # Add Connection label to statusbar
-        self.connStatusLabel = QtGui.QLabel()
+        self.connStatusLabel = QtWidgets.QLabel()
         self.connStatusLabel.setMargin(2)
         self.statusBar.addPermanentWidget(self.connStatusLabel)
 
@@ -253,7 +254,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
         folderpreset = self.txtFolder.text()
         if not os.path.isdir(folderpreset):
             folderpreset = os.path.expanduser("~")
-        destfolder = QtGui.QFileDialog.getExistingDirectory(self, "Choose destination Folder", folderpreset)
+        destfolder = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose destination Folder", folderpreset)
         self.txtFolder.setText(destfolder)
 
     def showStatusError(self, errstr):
@@ -284,7 +285,7 @@ class MainUi(QtGui.QMainWindow, Ui_wndMain):
 
 
 if __name__ == '__main__':
-    qApp = QtGui.QApplication(sys.argv)
+    qApp = QtWidgets.QApplication(sys.argv)
 
     wMain = MainUi()
     wMain.show()
