@@ -87,21 +87,17 @@ class FreseniusModule(Syringe):
             # Standalone syringe
             index = b''
         if isinstance(index, bytes):
-            self.__index = index
+            self._index = index
         else:
-            self.__index = str(index).encode('ASCII')
+            self._index = str(index).encode('ASCII')
         self.connect()
-
-    def __del__(self):
-        if self.comm is not None:
-            self.disconnect()
 
     def execRawCommand(self, msg, retry=True):
         def qTimeout():
             self.comm.recvq.put(Reply(error=True, value=Error.ETIMEOUT))
             self.comm.allowNewCmd()
 
-        cmd = genFrame(self.__index + msg)
+        cmd = genFrame(self._index + msg)
         self.comm.cmdq.put(cmd)
 
         # Time out after 1 second in case of communication failure.
@@ -111,7 +107,11 @@ class FreseniusModule(Syringe):
         t.cancel()
 
         reply = self.comm.recvq.get()
-        if reply.error and retry and reply.value in [Error.ERNR, Error.ETIMEOUT]:
+        if reply.error and reply.value is Error.ECOMMODULE:
+            printerr("Error: {}. Lost connection. Trying to reconnect.", reply.value)
+            self.connect()
+            return self.execRawCommand(msg, retry=False)
+        elif reply.error and retry and reply.value in [Error.ERNR, Error.ETIMEOUT]:
             # Temporary error. Try once more
             printerr("Error: {}. Retrying command.", reply.value)
             return self.execRawCommand(msg, retry=False)
@@ -148,23 +148,13 @@ class FreseniusModule(Syringe):
 class FreseniusBase(FreseniusModule):
     def __init__(self, comm, wait=True):
         super().__init__(comm, 0)
-        self.syringes = set()
+        self.syringes = {}
         if wait:
             time.sleep(1)
 
-    def __del__(self):
-        for s in self.syringes:
-            s.disconnect()
-        self.disconnect()
-        try:
-            self.comm.cmdq.clear()
-            self.comm.recvq.clear()
-        except AttributeError:
-            pass
-
     def connectSyringe(self, index):
         s = FreseniusSyringe(self.comm, index)
-        self.syringes |= set([s])
+        self.syringes[index] = s
         return s
 
     def listModules(self):
@@ -248,7 +238,7 @@ class FreseniusSyringe(FreseniusModule):
 
     @property
     def index(self):
-        return int(self.__index)
+        return int(self._index)
 
 class FreseniusComm(serial.Serial):
     def __init__(self, port, baudrate=19200):
