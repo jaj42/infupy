@@ -70,7 +70,7 @@ class Worker(QtCore.QObject):
 
     def logLoop(self):
         try: # Ensure file is open and writable.
-            if not self.csvfd.writable():
+            if self.csvfd.closed or not self.csvfd.writable():
                 raise IOError("Not writable")
         except (IOError, ValueError) as e:
             if self.shouldrun:
@@ -92,9 +92,9 @@ class Worker(QtCore.QObject):
             if DEBUG: print("{}:{}:{}".format(dt, origin, volume), file=sys.stderr)
 
             timestamp = int(dt.timestamp() * 1e9)
-            self.csv.writerow({'datetime' : timestamp,
-                               'syringe'  : origin,
-                               'volume'   : volume})
+            self.csv.writerow({'timestamp' : timestamp,
+                               'syringe'   : origin,
+                               'volume'    : volume})
 
     def onConnected(self):
         if self.oldconnstate == True:
@@ -103,13 +103,15 @@ class Worker(QtCore.QObject):
 
         self.oldconnstate = True
         self.sigConnected.emit()
-        filename = time.strftime('%Y%m%d-%H%M.csv')
-        filepath = os.path.join(self.destfolder, filename)
-        if not self.csvfd.writable():
+        self.csvfd.close()
+        if self.csvfd.closed or not self.csvfd.writable():
+            # We need to open a new file
             self.csvfd.close()
+            filename = time.strftime('%Y%m%d-%H%M.csv')
+            filepath = os.path.join(self.destfolder, filename)
             self.csvfd = open(filepath, 'w', newline='')
             self.reportUI("Opened file: {}".format(filepath))
-            self.csv = csv.DictWriter(self.csvfd, fieldnames = ['datetime', 'syringe', 'volume'])
+            self.csv = csv.DictWriter(self.csvfd, fieldnames = ['timestamp', 'syringe', 'volume'])
             self.csv.writeheader()
         self.logtimer.start(1000) # 1 second
 

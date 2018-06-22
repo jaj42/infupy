@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name         = 'infupy',
-      version      = '0.3',
+      version      = '0.4',
       description  = 'Syringe pump infusion',
       url          = 'https://github.com/jaj42/infupy',
       author       = 'Jona Joachim',
