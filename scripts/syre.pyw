@@ -79,7 +79,7 @@ class Worker(QtCore.QObject):
 
         while True: # Dump the whole queue to csv
             try:
-                timestamp, origin, msg = self.conn.eventq.get_nowait()
+                dt, origin, msg = self.conn.eventq.get_nowait()
             except queue.Empty:
                 break
 
@@ -89,7 +89,9 @@ class Worker(QtCore.QObject):
                 self.reportUI("Failed to decode volume value")
                 continue
 
-            if DEBUG: print("{}:{}:{}".format(timestamp, origin, volume), file=sys.stderr)
+            if DEBUG: print("{}:{}:{}".format(dt, origin, volume), file=sys.stderr)
+
+            timestamp = int(dt.timestamp() * 1e9)
             self.csv.writerow({'datetime' : timestamp,
                                'syringe'  : origin,
                                'volume'   : volume})
