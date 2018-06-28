@@ -18,8 +18,11 @@ def genCheckSum(msg):
     checkbytes = b'%02X' % checksum
     return checkbytes
 
-def genFrame(msg):
-    return STX + msg + genCheckSum(msg) + ETX
+def genFrame(origin, msg):
+    if origin is None:
+        origin = b''
+    frame = STX + origin + msg + genCheckSum(msg) + ETX
+    return frame
 
 def parseReply(rxbytes):
     # The checksum is in the last two bytes
@@ -97,7 +100,7 @@ class FreseniusModule(Syringe):
             self.comm.recvq.put(Reply(error=True, value=Error.ETIMEOUT))
             self.comm.allowNewCmd()
 
-        cmd = genFrame(self._index + msg)
+        cmd = genFrame(self._index, msg)
         self.comm.cmdq.put(cmd)
 
         # Time out after 1 second in case of communication failure.
@@ -145,6 +148,37 @@ class FreseniusModule(Syringe):
             raise CommandError(reply.value)
         return reply.value
 
+    # Spontaneous variable handling
+    def registerEvent(self, event):
+        super().registerEvent(event)
+        reply = self.execCommand(Command.enspont, flags=self._events)
+        if reply.error:
+            raise CommandError(reply.value)
+
+    def unregisterEvent(self, event):
+        super().unregisterEvent(event)
+        reply = self.execCommand(Command.disspont)
+        if reply.error:
+            raise CommandError(reply.value)
+        reply = self.execCommand(Command.enspont, flags=self._events)
+        if reply.error:
+            raise CommandError(reply.value)
+
+    def clearEvents(self):
+        super().clearEvents()
+        reply = self.execCommand(Command.disspont)
+        if reply.error:
+            raise CommandError(reply.value)
+
+    @property
+    def index(self):
+        try:
+            i = int(self._index)
+        except ValueError:
+            i = None
+        return i
+
+
 class FreseniusBase(FreseniusModule):
     def __init__(self, comm, wait=True):
         super().__init__(comm, 0)
@@ -174,6 +208,7 @@ class FreseniusBase(FreseniusModule):
 
     def readRate(self):
         raise NotImplementedError
+
 
 class FreseniusSyringe(FreseniusModule):
     def readRate(self):
@@ -214,37 +249,12 @@ class FreseniusSyringe(FreseniusModule):
         if reply.error:
             raise CommandError(reply.value)
 
-    # Spontaneous variable handling
-    def registerEvent(self, event):
-        super().registerEvent(event)
-        reply = self.execCommand(Command.enspont, flags=self._events)
-        if reply.error:
-            raise CommandError(reply.value)
-
-    def unregisterEvent(self, event):
-        super().unregisterEvent(event)
-        reply = self.execCommand(Command.disspont)
-        if reply.error:
-            raise CommandError(reply.value)
-        reply = self.execCommand(Command.enspont, flags=self._events)
-        if reply.error:
-            raise CommandError(reply.value)
-
-    def clearEvents(self):
-        super().clearEvents()
-        reply = self.execCommand(Command.disspont)
-        if reply.error:
-            raise CommandError(reply.value)
-
-    @property
-    def index(self):
-        return int(self._index)
 
 class FreseniusComm(serial.Serial):
-    def __init__(self, port, baudrate=19200):
+    def __init__(self, port):
         # These settings come from Fresenius documentation
         super().__init__(port     = port,
-                         baudrate = baudrate,
+                         baudrate = 19200,
                          bytesize = serial.SEVENBITS,
                          parity   = serial.PARITY_EVEN,
                          stopbits = serial.STOPBITS_ONE)
@@ -287,7 +297,7 @@ class RecvThread(threading.Thread):
         self.__buffer = b''
 
     def acknowledgeEvent(self, origin, status):
-        self.comm.cmdq.put(genFrame(origin + status.value))
+        self.comm.cmdq.put(genFrame(origin, status.value))
         self.comm.allowNewCmd()
 
     def enqueueReply(self, reply):
