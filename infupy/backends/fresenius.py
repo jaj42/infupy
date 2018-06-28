@@ -18,10 +18,10 @@ def genCheckSum(msg):
     checkbytes = b'%02X' % checksum
     return checkbytes
 
-def genFrame(origin, msg):
-    if origin is None:
-        origin = b''
-    frame = STX + origin + msg + genCheckSum(msg) + ETX
+def genFrame(dest, msg):
+    if dest is None:
+        dest = b''
+    frame = STX + dest + msg + genCheckSum(msg) + ETX
     return frame
 
 def parseReply(rxbytes):
