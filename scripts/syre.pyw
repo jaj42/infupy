@@ -1,6 +1,5 @@
 import sys, os.path, time, csv, io, queue
 
-#from PyQt4 import QtCore, QtWidgets
 from qtpy import QtCore, QtWidgets, QtWidgets
 
 import infupy.backends.fresenius as fresenius
@@ -144,9 +143,11 @@ class Worker(QtCore.QObject):
                 self.reportUI("Syringe {} lost: {}".format(i, e))
                 del self.syringes[i]
             else:
-                # Register volume event in case the syringe got reset.
-                # If the event was already registered, this is a no-op.
-                s.registerEvent(fresenius.VarId.volume)
+                # Re-register volume event in case the syringe got reset.
+                try:
+                    s.registerEvent(fresenius.VarId.volume)
+                except fresenius.CommandError as e:
+                    self.reportUI("Register event error: {}".format(e))
 
     def attachNewSyringes(self):
         try:
@@ -157,7 +158,7 @@ class Worker(QtCore.QObject):
                     s = fresenius.FreseniusSyringe(self.conn, modid)
                     s.registerEvent(fresenius.VarId.volume)
                     self.syringes[modid] = s
-        except IOError as e:
+        except (IOError, fresenius.CommandError) as e:
             self.reportUI("Attach syringe error: {}".format(e))
 
     def checkSerial(self):
