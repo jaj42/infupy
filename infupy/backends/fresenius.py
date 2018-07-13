@@ -21,7 +21,8 @@ def genCheckSum(msg):
 def genFrame(dest, msg):
     if dest is None:
         dest = b''
-    frame = STX + dest + msg + genCheckSum(msg) + ETX
+    destmsg = dest + msg
+    frame = STX + destmsg + genCheckSum(destmsg) + ETX
     return frame
 
 def parseReply(rxbytes):
@@ -259,7 +260,8 @@ class FreseniusComm(serial.Serial):
                          parity   = serial.PARITY_EVEN,
                          stopbits = serial.STOPBITS_ONE)
         if DEBUG:
-            self.logfile = open('fresenius_raw.log', 'wb')
+            self.logrx = open('fresenius_rx.log', 'wb', buffering=0)
+            self.logtx = open('fresenius_tx.log', 'wb', buffering=0)
 
         self.recvq  = queue.LifoQueue()
         self.cmdq   = queue.Queue(maxsize=10)
@@ -272,15 +274,20 @@ class FreseniusComm(serial.Serial):
         self.__rxthread.start()
         self.__txthread.start()
 
+    def __del__(self):
+        if DEBUG:
+            close(self.logrx)
+            close(self.logtx)
+
     if DEBUG:
         # Write all data exchange to file
         def read(self, size=1):
             data = super().read(size)
-            self.logfile.write(data)
+            self.logrx.write(data)
             return data
 
         def write(self, data):
-            self.logfile.write(data)
+            self.logtx.write(data)
             return super().write(data)
 
     def allowNewCmd(self):
