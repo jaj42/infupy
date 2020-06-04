@@ -15,15 +15,13 @@ def genCheckSum(msg):
     asciisum = sum(msg)
     _, low = divmod(asciisum, 0x100)
     checksum = 0xFF - low
-    checkbytes = b'%02X' % checksum
-    return checkbytes
+    return b'%02X' % checksum
 
 def genFrame(dest, msg):
     if dest is None:
         dest = b''
     destmsg = dest + msg
-    frame = STX + destmsg + genCheckSum(destmsg) + ETX
-    return frame
+    return STX + destmsg + genCheckSum(destmsg) + ETX
 
 def parseReply(rxbytes):
     # The checksum is in the last two bytes
@@ -33,11 +31,7 @@ def parseReply(rxbytes):
     # Partition the string
     splt = rxmsg.split(b';', 1)
     meta = splt[0]
-    if len(splt) > 1:
-        msg = splt[1]
-    else:
-        msg = None
-
+    msg = splt[1] if len(splt) > 1 else None
     # Read meta data
     if len(meta) > 1:
         origin = meta[0:1]
@@ -54,7 +48,7 @@ def parseReply(rxbytes):
     return (restat, origin, msg, chk == genCheckSum(rxmsg))
 
 def parseVars(msg):
-    ret = dict()
+    ret = {}
     if msg is None:
         return ret
     for repvar in msg.split(b';'):
@@ -69,7 +63,7 @@ def parseVars(msg):
 
 def extractRate(msg):
     vals = parseVars(msg)
-    if not VarId.rate in vals.keys():
+    if VarId.rate not in vals.keys():
         raise ValueError
     rate = vals[VarId.rate]
     n = int(rate, 16)
@@ -77,7 +71,7 @@ def extractRate(msg):
 
 def extractVolume(msg):
     vals = parseVars(msg)
-    if not VarId.volume in vals.keys():
+    if VarId.volume not in vals.keys():
         raise ValueError
     vol = vals[VarId.volume]
     n = int(vol, 16)
@@ -90,10 +84,7 @@ class FreseniusModule(Syringe):
         if index is None:
             # Standalone syringe
             index = b''
-        if isinstance(index, bytes):
-            self._index = index
-        else:
-            self._index = str(index).encode('ASCII')
+        self._index = index if isinstance(index, bytes) else str(index).encode('ASCII')
         self.connect()
 
     def execRawCommand(self, msg, retry=True):
@@ -193,16 +184,12 @@ class FreseniusBase(FreseniusModule):
         return s
 
     def listModules(self):
-        modules = []
         reply = self.execCommand(Command.readvar, flags=[VarId.modules])
         if reply.error:
             raise CommandError(reply.value)
         results = parseVars(reply.value)
         binmods = int(results[VarId.modules], 16)
-        for i in range(5):
-            if (1 << i) & binmods:
-                modules.append(i + 1)
-        return modules
+        return [i + 1 for i in range(5) if (1 << i) & binmods]
 
     def readVolume(self):
         raise NotImplementedError
@@ -237,10 +224,7 @@ class FreseniusSyringe(FreseniusModule):
 
     def remoteControl(self, doctrl):
         #1 : manual, 2 : PC control
-        if doctrl:
-            newmode = b'2'
-        else:
-            newmode = b'1'
+        newmode = b'2' if doctrl else b'1'
         reply = self.execCommand(Command.mode, args=[newmode])
         if reply.error:
             raise CommandError(reply.value)
@@ -346,9 +330,6 @@ class RecvThread(threading.Thread):
             iorigin = int(origin)
             self.comm.eventq.put((datetime.now(), iorigin, msg))
 
-        else:
-            pass
-
     def run(self):
         insideNAKerr = False
         insideCommand = False
@@ -379,9 +360,7 @@ class RecvThread(threading.Thread):
                 insideNAKerr = True
             elif insideCommand:
                 self.__buffer += c
-            elif c == b'':
-                pass
-            else:
+            elif c != b'':
                 printerr("Unexpected char received: {}", ord(c))
 
 
@@ -414,10 +393,7 @@ CHROK = [chr(c) for c in range(0x20 , 0x7E)]
 class Reply(object):
     __slots__ = ('origin', 'value', 'error')
     def __init__(self, origin=None, value='', error=False):
-        if origin is None:
-            self.origin = 0
-        else:
-            self.origin = int(origin)
+        self.origin = 0 if origin is None else int(origin)
         self.value = value
         self.error = error
 
