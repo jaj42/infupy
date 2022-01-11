@@ -13,8 +13,7 @@ DEBUG = False
 crcccitt = crcmod.predefined.mkCrcFun('crc-ccitt-false')
 def genCheckSum(msg):
     crcval = crcccitt(msg)
-    checkbytes = b'%04X' % crcval
-    return checkbytes
+    return b'%04X' % crcval
 
 def genFrame(msg):
     return b'!' + msg + b'|' + genCheckSum(msg) + b'\r'
@@ -193,9 +192,7 @@ class RecvThread(threading.Thread):
                 self.processRxBuffer()
             elif insideCommand:
                 self.__buffer += c
-            elif c == b'':
-                pass
-            else:
+            elif c != b'':
                 printerr("Unexpected char received: {}", ord(c))
 
 class SendThread(threading.Thread):
