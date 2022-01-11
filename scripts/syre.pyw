@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import sys, os.path, time, csv, io, queue
 
 from qtpy import QtCore, QtWidgets, QtWidgets
